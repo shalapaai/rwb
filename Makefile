@@ -25,6 +25,21 @@ migration: ## Новая миграция: make migration m="описание"
 migrate: ## Применить миграции
 	$(COMPOSE) run --rm backend alembic upgrade head
 
+seed: ## Заполнить БД демо-городом (задача N2)
+	$(COMPOSE) run --rm backend python -m app.seed
+
+fresh: ## Чистый стенд: удалить БД, поднять заново, засеять
+	$(COMPOSE) down -v
+	$(COMPOSE) up --build -d
+	$(COMPOSE) run --rm backend python -m app.seed
+
+check: ## Всё перед слиянием: ruff + pytest + сборка фронта (локально)
+	cd backend && ruff check . && pytest -q
+	cd frontend && npm run build
+
+gen-api: ## TS-типы фронта из OpenAPI (backend должен быть запущен)
+	cd frontend && npm run gen:api
+
 backup: ## Дамп БД в backups/
 	mkdir -p backups
 	$(COMPOSE) exec -T db pg_dump -U mesh mesh > backups/mesh_$$(date +%Y%m%d_%H%M%S).sql
@@ -38,4 +53,4 @@ backend-dev: ## Backend локально (нужен venv и docker compose up d
 frontend-dev: ## Frontend локально
 	cd frontend && npm run dev
 
-.PHONY: help up down reset-db test lint migration migrate backup restore backend-dev frontend-dev
+.PHONY: help up down reset-db test lint migration migrate seed fresh check gen-api backup restore backend-dev frontend-dev
