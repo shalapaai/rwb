@@ -60,3 +60,9 @@ main {
   font-size: 12px;
   font-weight: 600;
 }
+
+nav.tabs {
+  padding: 8px 24px;
+  background: #fff;
+  border-bottom: 1px solid #e3e3e8;
+}
