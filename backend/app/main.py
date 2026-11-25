@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import system
 from app.core.config import get_settings
 from app.core.logging import setup_logging
+from app.modules.routing.router import router as routing_router
 
 settings = get_settings()
 setup_logging(settings.log_level)
@@ -31,3 +32,4 @@ async def count_requests(request: Request, call_next):
 app.include_router(system.router)
 
 # Предметные роутеры подключаются здесь, по одному на модуль из app/modules.
+app.include_router(routing_router)
