@@ -1,0 +1,122 @@
+/* Экран «Модель». Цвета — ролями; категориальные слоты в фиксированном порядке
+   (проверены валидатором навыка dataviz: CVD ΔE ≥ 11.8, обычное зрение ΔE ≥ 20.5). */
+.viz-root {
+  --surface-1: #ffffff;
+  --text-primary: #191919;
+  --text-secondary: #666666;
+  --grid: #ececf1;
+  --series-1: #257de0;
+  --series-2: #f47230;
+  --series-3: #00b894;
+  --series-4: #f2a600;
+  --series-5: #ee7fac;
+  --series-6: #008a17;
+  --zone-mesh: #e9f6ee;
+  --zone-hub: #f6f0f0;
+  --good: #1a7f37;
+  --bad: #c2382f;
+  --accent: #6b2bd9;
+}
+
+.model-page { display: grid; gap: 16px; max-width: 1080px; }
+.model-heading h1 { margin: 0 0 4px; font-size: 24px; }
+.model-heading p { margin: 0; color: var(--text-secondary); }
+
+.model-card {
+  background: var(--surface-1);
+  border: 1px solid #e3e3e8;
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+.model-card h2 { margin: 0 0 12px; font-size: 17px; }
+
+.model-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+.model-field { display: grid; gap: 4px; font-size: 13px; color: var(--text-secondary); }
+.model-field input[type="number"], .model-field select {
+  width: 160px; padding: 6px 8px; border: 1px solid #d0d0d8; border-radius: 6px; font: inherit;
+  color: var(--text-primary);
+}
+.model-field input[type="range"] { width: 260px; accent-color: var(--accent); }
+.model-toggle { display: flex; gap: 0; }
+.model-toggle button {
+  padding: 6px 12px; border: 1px solid #d0d0d8; background: #fff; cursor: pointer; font: inherit;
+}
+.model-toggle button:first-child { border-radius: 6px 0 0 6px; }
+.model-toggle button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.model-toggle button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.model-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.model-tile {
+  background: var(--surface-1); border: 1px solid #e3e3e8; border-radius: 10px; padding: 12px 16px;
+  display: grid; gap: 2px;
+}
+.model-tile span { font-size: 13px; color: var(--text-secondary); }
+.model-tile strong { font-size: 24px; color: var(--text-primary); }
+.model-tile em { font-style: normal; font-size: 13px; color: var(--text-secondary); }
+.model-tile.is-positive em { color: var(--good); }
+.model-tile.is-negative em { color: var(--bad); }
+
+/* 1. столбцы статей */
+.model-costs { display: grid; gap: 10px; }
+.model-bar-row { display: grid; grid-template-columns: 90px 1fr 110px; align-items: center; gap: 12px; }
+.model-bar-name { font-size: 14px; }
+.model-bar-total { text-align: right; font-variant-numeric: tabular-nums; }
+.model-bar-track { display: flex; gap: 2px; height: 28px; min-width: 4px; }
+.model-seg {
+  border: none; padding: 0; min-width: 3px; cursor: pointer; opacity: 0.9;
+}
+.model-seg:first-child { border-radius: 4px 0 0 4px; }
+.model-seg:last-child { border-radius: 0 4px 4px 0; }
+.model-seg:only-child { border-radius: 4px; }
+.model-seg:hover, .model-seg:focus-visible, .model-seg.is-active {
+  opacity: 1; outline: 2px solid var(--text-primary); outline-offset: 1px;
+}
+.model-tip {
+  min-height: 64px; padding: 10px 12px; background: #f7f7fa; border-radius: 8px; font-size: 13px;
+}
+.model-tip p { margin: 0 0 4px; }
+.model-formula { font-family: ui-monospace, monospace; color: var(--text-secondary); }
+.model-inputs { display: grid; gap: 2px; margin: 6px 0 0; }
+.model-inputs div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; }
+.model-inputs dt { font-family: ui-monospace, monospace; }
+.model-inputs dd { margin: 0; }
+.model-basis { display: block; color: var(--text-secondary); }
+
+.model-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.model-table th, .model-table td { padding: 6px 8px; border-bottom: 1px solid #ececf1; text-align: left; vertical-align: top; }
+.model-table th { color: var(--text-secondary); font-weight: 600; }
+.model-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.model-table code { display: block; color: var(--text-secondary); font-size: 11px; }
+.model-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.model-scroll { max-height: 420px; overflow: auto; }
+
+/* 2. деление эффекта */
+.model-split { display: grid; gap: 8px; }
+.model-split-row { display: grid; grid-template-columns: 110px 1fr 120px; gap: 12px; align-items: center; }
+.model-split-row strong { text-align: right; font-variant-numeric: tabular-nums; }
+.model-split-row strong.is-negative { color: var(--bad); }
+.model-split-track { position: relative; height: 20px; }
+.model-split-zero { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--text-primary); }
+.model-split-bar { position: absolute; top: 0; bottom: 0; border-radius: 4px; min-width: 2px; }
+.model-check { margin: 4px 0 0; font-weight: 600; }
+.model-check.is-ok { color: var(--good); }
+.model-check.is-bad { color: var(--bad); }
+
+/* 3. граница */
+.model-boundary { display: grid; gap: 8px; }
+.model-rule { margin: 0; font-weight: 600; }
+.model-chart-tip {
+  background: #fff; border: 1px solid #d0d0d8; border-radius: 6px; padding: 6px 10px; font-size: 13px;
+}
+
+/* 4. ПВЗ */
+.model-pvz { display: grid; gap: 12px; }
+.model-sliders { display: flex; flex-wrap: wrap; gap: 16px 32px; }
+.model-pvz-lines { display: grid; grid-template-columns: 200px 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
+.model-pvz-lines dt { color: var(--text-secondary); }
+.model-pvz-lines dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+.model-synthetic {
+  display: inline-block; margin: 0 0 8px; padding: 2px 8px; border-radius: 4px;
+  background: #fff3cd; color: #7a5a00; font-size: 12px; font-weight: 600;
+}
