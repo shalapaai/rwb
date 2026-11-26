@@ -4,6 +4,7 @@
 """
 
 from decimal import Decimal
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -65,3 +66,67 @@ class UnitEconomics(BaseModel):
         description="Эффект цепочки с учётом того, что маржу хранения получает ПВЗ."
     )
     distribution: Distribution
+
+
+class StressParameter(StrEnum):
+    DEMAND = "demand_per_day"
+    DAYS = "shelf_days"
+    VOLUME = "volume_l"
+    OPENED = "opened_share"
+    REPACK = "repack_cost_kop"
+    TARIFF = "storage_tariff_kop_l_day"
+    LOSS = "loss_share"
+    SEASON = "season_factor"
+
+
+class StressPoint(BaseModel):
+    x: int | Decimal
+    mesh_profitable: bool = Field(description="Эффект цепочки положителен до округления.")
+    effect_kop: int
+    effect_after_storage_fee_kop: int
+    distribution: Distribution
+
+
+class Sensitivity(BaseModel):
+    param: StressParameter
+    unit: str
+    base_value: int | Decimal
+    points: list[StressPoint]
+
+
+class BoundaryRule(BaseModel):
+    threshold: int | Decimal | None = Field(
+        description="Нуль, если он представим, иначе ближайшее значение со стороны mesh."
+    )
+    mesh_edge: int | Decimal | None
+    hub_edge: int | Decimal | None
+    rule: str
+
+
+class ParameterBoundary(BaseModel):
+    param: StressParameter
+    unit: str
+    search_from: int | Decimal
+    search_to: int | Decimal
+    chain: BoundaryRule
+    after_storage_fee: BoundaryRule
+
+
+class PvzMonth(BaseModel):
+    share: int
+    utilization: Decimal
+    shelf_l: Decimal
+    occupied_l: Decimal
+    storage_tariff_kop_l_day: int
+    storage_income_kop: int
+    operations_income_kop: int
+    income_kop: int
+    space_cost_kop: int
+    labour_cost_kop: int
+    materials_cost_kop: int
+    cost_kop: int
+    profit_kop: int
+    break_even_utilization: Decimal | None = Field(
+        description="Доля занятых литров, при которой прибыль равна нулю. "
+        "Значение свыше 1 недостижимо, null означает отсутствие положительного вклада."
+    )
