@@ -163,7 +163,7 @@ export interface paths {
         put?: never;
         /**
          * Shelf Action
-         * @description Подтвердить снятие для возврата или размещение первого ожидающего товара.
+         * @description Подтвердить снятие для возврата или размещение товара с доступным заданием.
          */
         post: operations["shelf_action_pvz__pvz_id__units__unit_id___action__post"];
         delete?: never;

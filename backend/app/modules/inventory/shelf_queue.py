@@ -49,6 +49,21 @@ def fits(used: float, volume: float, limit: float) -> bool:
     return Decimal(str(used)) + Decimal(str(volume)) <= Decimal(str(limit))
 
 
+def ready_to_shelve(session: Session, node: Node) -> Iterator[tuple[Unit, float]]:
+    """Распределить свободные литры между ожидающими в порядке поступления."""
+    remaining = Decimal(str(node.mesh_limit_l)) - Decimal(str(used_l(session, node.id)))
+    if remaining <= 0:
+        return
+    rows = session.execute(_rows(session, node.id, ("awaiting_shelf",)).order_by(Unit.id))
+    for unit, volume in rows:
+        size = Decimal(str(volume))
+        if size <= remaining:
+            remaining -= size
+            yield unit, volume
+            if remaining == 0:
+                break
+
+
 def plan_removals(session: Session, node: Node, *, share_changed: bool = False) -> None:
     """Назначить минимальный префикс FIFO под общий объём очереди, исключая резервы."""
     rows = session.execute(
@@ -228,7 +243,5 @@ def shelf_tasks(session: Session, node: Node) -> list[dict]:
         _task(unit, volume, "remove" if unit.status == "remove_pending" else "return")
         for unit, volume in removals
     ]
-    head = waiting_head(session, node.id)
-    if head and fits(used_l(session, node.id), head.volume_l, node.mesh_limit_l):
-        tasks.append(_task(head[0], head.volume_l, "shelve"))
+    tasks.extend(_task(unit, volume, "shelve") for unit, volume in ready_to_shelve(session, node))
     return tasks
