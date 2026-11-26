@@ -40,6 +40,13 @@ CATEGORIES = [
     ("shoes", "Обувь", MARKING_REASON, True),
     ("perfume", "Парфюмерия", MARKING_REASON, True),
 ]
+# Демо-товары routing называются по SKU — на экране «Спрос» им нужны человеческие имена.
+DEMO_NAMES = {
+    "SKU-001": "Кружка-термос",
+    "SKU-002": "Подарочная книга",
+    "SKU-003": "Бутылка для воды",
+    "SKU-005": "Конструктор",
+}
 DEMO_CATEGORIES = {
     "SKU-001": "kitchen",
     "SKU-002": "books",
@@ -163,7 +170,7 @@ def _seed_catalog(session: Session, city: City) -> None:
     products = [
         {
             "sku": sku.id,
-            "name": sku.id,
+            "name": DEMO_NAMES.get(sku.id, sku.id),
             "volume_l": sku.volume_l,
             "price_kop": sku.price_kop,
             "seller_id": SELLER_ID,

@@ -1,0 +1,42 @@
+/* Экран «Спрос». Цвета — те же роли, что на экране «Модель». */
+.demand-page { display: grid; gap: 16px; max-width: 1180px; }
+.demand-page h1 { margin: 0 0 4px; font-size: 24px; }
+.demand-rule { margin: 0; color: #444; }
+.demand-rule b { color: #191919; }
+
+.demand-card { background: #fff; border: 1px solid #e3e3e8; border-radius: 10px; padding: 16px 20px; }
+.demand-card h2 { margin: 0 0 4px; font-size: 17px; }
+.demand-card > p { margin: 0 0 12px; font-size: 13px; color: #666; }
+
+.demand-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.demand-tile { background: #fff; border: 1px solid #e3e3e8; border-radius: 10px; padding: 12px 16px; display: grid; gap: 2px; }
+.demand-tile span { font-size: 13px; color: #666; }
+.demand-tile strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+
+.demand-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 12px; }
+.demand-filters label { display: grid; gap: 4px; font-size: 13px; color: #666; }
+.demand-filters select { padding: 6px 8px; border: 1px solid #d0d0d8; border-radius: 6px; font: inherit; min-width: 200px; }
+.demand-filters .count { margin-left: auto; font-size: 13px; color: #666; }
+
+.demand-table-wrap { max-height: 560px; overflow: auto; border: 1px solid #ececf1; border-radius: 8px; }
+.demand-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.demand-table th {
+  position: sticky; top: 0; background: #fafafc; text-align: left; font-weight: 600; font-size: 13px;
+  color: #555; padding: 8px 10px; border-bottom: 1px solid #e3e3e8; white-space: nowrap;
+}
+.demand-table td { padding: 7px 10px; border-bottom: 1px solid #f0f0f4; vertical-align: top; }
+.demand-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.demand-table tr.is-hub td { background: #fdf2f1; }
+.demand-table .sku { font-size: 12px; color: #777; }
+.demand-table .verdict { font-weight: 600; white-space: nowrap; }
+.demand-table .verdict.ok { color: #1a7f37; }
+.demand-table .verdict.no { color: #c2382f; }
+.demand-table .reason { color: #555; font-size: 13px; }
+
+.demand-meter { position: relative; width: 90px; height: 6px; background: #ececf1; border-radius: 3px; margin-top: 4px; }
+.demand-meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #257de0; }
+.demand-meter i.low { background: #c2382f; }
+.demand-meter b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #191919; }
+
+.demand-legend { display: flex; gap: 16px; font-size: 13px; color: #666; margin-top: 8px; }
+.demand-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }

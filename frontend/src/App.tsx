@@ -1,5 +1,6 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { api, type Role } from "./api";
+import Demand from "./pages/Demand";
 import Logist from "./pages/Logist";
 import Model from "./pages/Model";
 import Pvz from "./pages/Pvz";
@@ -29,6 +30,7 @@ const ROLES: { id: Role; title: string; screens: Screen[] }[] = [
     title: "Логист",
     screens: [
       { id: "logist", title: "Граф и план", Component: Logist },
+      { id: "demand", title: "Спрос", Component: Demand },
       { id: "model", title: "Модель", Component: Model },
     ],
   },
