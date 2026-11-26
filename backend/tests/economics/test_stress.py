@@ -35,11 +35,11 @@ def test_sensitivity_axes_and_zero_demand():
         for row in points:
             assert sum(row["distribution"].values()) == row["effect_kop"]
 
-    # При λ=0 расходуются проверка, 1/4 переупаковки, 14 суток полки и резерв потерь.
+    # При λ=0 расходуются проверка, 3/4 переупаковки, 14 суток полки и резерв потерь.
     query = {"param": "demand_per_day", "from": 0, "to": 1, "steps": 2}
     first, last = client.get("/model/sensitivity", params=query).json()["points"]
-    assert first["effect_kop"] == -2552  # −1650 − 1406/4 − 2×14×10 − 90000×0,003
-    assert first["effect_after_storage_fee_kop"] == -2692
+    assert first["effect_kop"] == -3255  # −1650 − 1406×3/4 − 2×14×10 − 90000×0,003
+    assert first["effect_after_storage_fee_kop"] == -3395  # ещё 2×14×5 маржи хранения ПВЗ
     assert last["effect_kop"] > 0
 
     prices = {"param": "storage_tariff_kop_l_day", "from": 10, "to": 20, "steps": 2}
@@ -101,9 +101,9 @@ def test_monthly_costs_and_break_even():
     )
     assert row["profit_kop"] == row["income_kop"] - row["cost_kop"]
     assert 0 < Decimal(row["break_even_utilization"]) < Decimal("0.5")
-    assert row["profit_kop"] == 278984
+    assert row["profit_kop"] == 333735
     full = client.get("/model/pvz-economics", params={"utilization": 1}).json()
-    assert full["profit_kop"] == 632967
+    assert full["profit_kop"] == 742471
 
     # При равенстве выплат и затрат на каждую операцию только хранение даёт прибыль.
     p = replace(DEFAULTS, opened_share=Decimal(0), wage_kop_hour=0)
