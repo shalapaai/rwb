@@ -42,11 +42,11 @@
 | --- | --- | ---: |
 | mesh | ext:buyer | -1 500,00 ₽ |
 | mesh | ext:it | 1,00 ₽ |
-| mesh | ext:labour | 29,98 ₽ |
-| mesh | ext:rent | 1,10 ₽ |
+| mesh | ext:labour | 29,88 ₽ |
+| mesh | ext:rent | 1,00 ₽ |
 | mesh | ext:van | 4,00 ₽ |
-| mesh | mp | 264,05 ₽ |
-| mesh | pvz:ПВЗ-A | 6,05 ₽ |
+| mesh | mp | 264,35 ₽ |
+| mesh | pvz:ПВЗ-A | 5,95 ₽ |
 | mesh | pvz:ПВЗ-B | 45,82 ₽ |
 | mesh | seller:S-01 | 1 148,00 ₽ |
 | base | ext:buyer | -1 500,00 ₽ |
@@ -129,11 +129,11 @@
 | --- | --- | ---: |
 | mesh | ext:hub_ops | 37,00 ₽ |
 | mesh | ext:it | 1,00 ₽ |
-| mesh | ext:labour | 46,38 ₽ |
-| mesh | ext:rent | 1,00 ₽ |
+| mesh | ext:labour | 46,28 ₽ |
+| mesh | ext:rent | 0,90 ₽ |
 | mesh | ext:van | 4,00 ₽ |
-| mesh | mp | -144,45 ₽ |
-| mesh | pvz:ПВЗ-A | 5,95 ₽ |
+| mesh | mp | -144,15 ₽ |
+| mesh | pvz:ПВЗ-A | 5,85 ₽ |
 | mesh | pvz:ПВЗ-B | 49,12 ₽ |
 | base | ext:buyer | -1 500,00 ₽ |
 | base | ext:hub_ops | 97,40 ₽ |
@@ -180,11 +180,11 @@
 | --- | --- | ---: |
 | mesh | ext:buyer | -1 500,00 ₽ |
 | mesh | ext:it | 1,00 ₽ |
-| mesh | ext:labour | 13,28 ₽ |
-| mesh | ext:rent | 0,90 ₽ |
+| mesh | ext:labour | 13,18 ₽ |
+| mesh | ext:rent | 0,80 ₽ |
 | mesh | ext:van | 4,00 ₽ |
-| mesh | mp | 304,45 ₽ |
-| mesh | pvz:ПВЗ-A | 2,55 ₽ |
+| mesh | mp | 304,75 ₽ |
+| mesh | pvz:ПВЗ-A | 2,45 ₽ |
 | mesh | pvz:ПВЗ-B | -20,00 ₽ |
 | mesh | pvz:ПВЗ-C | 45,82 ₽ |
 | mesh | seller:S-01 | 1 148,00 ₽ |
