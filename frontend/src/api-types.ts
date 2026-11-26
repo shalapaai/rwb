@@ -766,6 +766,10 @@ export interface components {
             movements: components["schemas"]["Movement"][];
             /** Inserted Stops */
             inserted_stops: components["schemas"]["InsertedStop"][];
+            /** Unassigned */
+            unassigned?: {
+                [key: string]: number;
+            };
             /** Total Money Kop */
             total_money_kop: number;
             /** Hub Money Kop */
@@ -855,6 +859,11 @@ export interface components {
             added_km: number;
             /** Hub Units */
             hub_units: number;
+            /**
+             * Unassigned Units
+             * @default 0
+             */
+            unassigned_units: number;
         };
         /** SettingsIn */
         SettingsIn: {

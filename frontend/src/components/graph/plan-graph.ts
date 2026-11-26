@@ -7,9 +7,11 @@ import type { components } from "../../api-types";
 
 type Schemas = components["schemas"];
 export type City = Schemas["City"];
+export type Order = Schemas["Order"];
 export type Plan = Schemas["Plan"];
 export type Assignment = Schemas["Assignment"];
 export type Leg = Schemas["Leg"];
+export const minutesPerDay = 24 * 60;
 
 export const traceStyles = {
   pair: { label: "Попутная пара", color: "#7649a0" },
@@ -67,15 +69,23 @@ export function routeConnections(routes: City["routes"], minGap: number) {
 }
 
 /** Плечо может проходить через несколько остановок одной газели. */
-export function legNodes(leg: Leg, routes: Map<string, City["routes"][number]>): string[] {
-  const stops = routes.get(leg.route_id)?.stops ?? [];
-  const from = stops.findIndex((stop) => stop.node_id === leg.from_node && stop.eta_min === leg.depart_min);
-  const to = stops.findIndex((stop, index) => (
-    index > from && stop.node_id === leg.to_node && stop.eta_min === leg.arrive_min
+export function legNodes(leg: Leg, routes: Map<string, City["routes"][number]>, offset = 0): string[] {
+  const route = routes.get(leg.route_id);
+  if (!route) return [leg.from_node, leg.to_node];
+  const { stops, depot_id: depot } = route;
+  const fromDepot = leg.from_node === depot;
+  const toDepot = leg.to_node === depot;
+  const from = fromDepot ? -1 : stops.findIndex((stop) => (
+    stop.node_id === leg.from_node && stop.eta_min + offset === leg.depart_min
   ));
-  return from >= 0 && to > from
-    ? stops.slice(from, to + 1).map((stop) => stop.node_id)
-    : [leg.from_node, leg.to_node];
+  const to = toDepot ? stops.length : stops.findIndex((stop, index) => (
+    index > from && stop.node_id === leg.to_node && stop.eta_min + offset === leg.arrive_min
+  ));
+  if ((!fromDepot && from < 0) || to <= from) return [leg.from_node, leg.to_node];
+  const nodes = stops.slice(Math.max(0, from), to + 1).map((stop) => stop.node_id);
+  if (fromDepot) nodes.unshift(depot);
+  if (toDepot) nodes.push(depot);
+  return nodes;
 }
 
 export function assignmentTraces(
@@ -85,16 +95,21 @@ export function assignmentTraces(
   selectedOrder: string | null,
 ): MapTrace[] {
   const orders = new Map(city.orders?.map((order) => [order.id, order]));
+  const nextRoutes = new Map(city.routes.map((route) => [route.id, route]));
   return plan.assignments.flatMap((assignment, index) => {
     const { order_id: id, variant, source_node: source, legs } = assignment;
     const label = `${id} · ${traceStyles[variant].label}`;
     const view = { kind: variant, label, selected: selectedOrder === id, muted: selectedOrder !== null && selectedOrder !== id };
     if (legs?.length) {
-      return legs.map((leg, legIndex) => ({
-        ...view,
-        id: `order-${index}-${legIndex}`,
-        nodes: legNodes(leg, routes),
-      }));
+      return legs.map((leg, legIndex) => {
+        const nextDay = variant === "hub" && legIndex === legs.length - 1;
+        return {
+          ...view,
+          id: `order-${index}-${legIndex}`,
+          label: nextDay ? `${label} · следующий рейс` : label,
+          nodes: legNodes(leg, nextDay ? nextRoutes : routes, nextDay ? minutesPerDay : 0),
+        };
+      });
     }
     // Без плеч самовывоз отмечаем в ПВЗ выдачи, а базовую доставку — связью хаб → ПВЗ.
     const destination = orders.get(id)?.pvz_id;
@@ -104,7 +119,8 @@ export function assignmentTraces(
 }
 
 export function describeDetour(stop: Plan["inserted_stops"][number]) {
-  return `+${stop.added_min} мин · крюк ${formatMoney(stop.cost_kop)} · выгода ${formatMoney(stop.gain_kop)}`;
+  const cost = `+${stop.added_min} мин · крюк ${formatMoney(stop.cost_kop)}`;
+  return stop.gain_kop > 0 ? `${cost} · выгода ${formatMoney(stop.gain_kop)}` : cost;
 }
 
 export function detourTraces(plan: Plan, routes: Map<string, City["routes"][number]>): MapTrace[] {
@@ -112,8 +128,9 @@ export function detourTraces(plan: Plan, routes: Map<string, City["routes"][numb
     const label = `${stop.node_id} · ${describeDetour(stop)}`;
     const pin: MapTrace = { id: `detour-${index}-pin`, kind: "detour", nodes: [stop.node_id], label };
     const route = routes.get(stop.route_id);
-    const position = route?.stops.findIndex((visit) => visit.node_id === stop.node_id) ?? -1;
-    if (!route || position < 0) return [pin];
+    const position = stop.position;
+    const visit = route?.stops[position];
+    if (!route || !visit?.added || visit.node_id !== stop.node_id) return [pin];
     const before = route.stops[position - 1]?.node_id ?? route.depot_id;
     const after = route.stops[position + 1]?.node_id ?? route.depot_id;
     return [pin, { ...pin, id: `detour-${index}`, nodes: [before, stop.node_id, after] }];

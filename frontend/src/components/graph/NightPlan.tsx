@@ -1,6 +1,6 @@
 /**
  * Проводит логиста от маршрутов WB к результату ночного планирования.
- * Карта и панели используют один ответ /routing/demo, включая части заказов.
+ * Карта и панели показывают актуальный расчёт, включая части заказов.
  */
 
 import { useState } from "react";
@@ -11,6 +11,7 @@ import {
   detourTraces,
   formatMoney,
   legNodes,
+  minutesPerDay,
   routeConnections,
   traceStyles,
   type Assignment,
@@ -65,10 +66,15 @@ function ConnectionDetails({ connections, minGap }: { connections: Connections; 
   );
 }
 
-function OrderDetails({ orderId, parts }: { orderId: string; parts: Assignment[] }) {
+export function OrderDetails({ orderId, parts, waiting = 0 }: {
+  orderId: string;
+  parts: Assignment[];
+  waiting?: number;
+}) {
   return (
     <div className="night-plan-order-details" aria-live="polite">
       <h3>Заказ {orderId}</h3>
+      {waiting > 0 && <p>Ожидает маршрута · {waiting} шт.</p>}
       {parts.map((part, index) => (
         <div key={index} className="night-plan-order-part">
           <dl>
@@ -78,15 +84,22 @@ function OrderDetails({ orderId, parts }: { orderId: string; parts: Assignment[]
             <div><dt>Стоимость за штуку</dt><dd>{formatMoney(part.money_kop)}</dd></div>
             <div><dt>Срок с заказа</dt><dd>{hours.format(part.hours)} ч</dd></div>
           </dl>
+          {part.variant === "hub" && !!part.legs?.length && (
+            <p>Заберём с полки в хаб сегодня, доставим следующим рейсом завтра.</p>
+          )}
           <h4>Плечи газелей</h4>
           {part.legs?.length ? (
             <ol className="night-plan-data">
-              {part.legs.map((leg, legIndex) => (
-                <li key={legIndex}>
-                  <strong>{leg.route_id}</strong> · {leg.from_node} → {leg.to_node}
-                  <span>{leg.depart_min} → {leg.arrive_min} мин после выезда</span>
-                </li>
-              ))}
+              {part.legs.map((leg, legIndex, legs) => {
+                const nextDay = part.variant === "hub" && legIndex === legs.length - 1;
+                const offset = nextDay ? minutesPerDay : 0;
+                return (
+                  <li key={legIndex}>
+                    <strong>{leg.route_id}</strong> · {leg.from_node} → {leg.to_node}
+                    <span>{nextDay && "Завтра · "}{leg.depart_min - offset} → {leg.arrive_min - offset} мин после выезда</span>
+                  </li>
+                );
+              })}
             </ol>
           ) : <p>Нет плеч попутных газелей.</p>}
         </div>
@@ -98,14 +111,17 @@ function OrderDetails({ orderId, parts }: { orderId: string; parts: Assignment[]
 export default function NightPlan({
   city,
   plan,
+  selectedOrder,
+  onSelectOrder,
   onSelectPvz,
 }: {
   city: City;
   plan: Plan;
+  selectedOrder: string | null;
+  onSelectOrder: (id: string | null) => void;
   onSelectPvz?: (id: string) => void;
 }) {
   const [step, setStep] = useState<Step>("routes");
-  const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const isResult = step === "result";
   const showConnections = step === "connections" || isResult;
   const showAssignments = step === "assignments" || isResult;
@@ -119,7 +135,8 @@ export default function NightPlan({
     parts.push(part);
     partsByOrder.set(part.order_id, parts);
   }
-  const orderIds = [...partsByOrder.keys()].sort((a, b) => a.localeCompare(b, "ru", { numeric: true }));
+  const orderIds = [...new Set([...partsByOrder.keys(), ...Object.keys(plan.unassigned ?? {})])]
+    .sort((a, b) => a.localeCompare(b, "ru", { numeric: true }));
   const traces: MapTrace[] = [];
   const legend: TraceKind[] = [];
 
@@ -184,7 +201,7 @@ export default function NightPlan({
                     type="button"
                     title={kinds.map((kind) => traceStyles[kind].label).join(", ")}
                     aria-pressed={selectedOrder === orderId}
-                    onClick={() => setSelectedOrder((previous) => previous === orderId ? null : orderId)}
+                    onClick={() => onSelectOrder(selectedOrder === orderId ? null : orderId)}
                   >
                     {kinds.map((kind) => (
                       <span key={kind} aria-hidden="true" style={{ background: traceStyles[kind].color }} />
@@ -195,10 +212,12 @@ export default function NightPlan({
               })}
             </div>
           ) : <p>В плане нет назначений.</p>}
-          {selectedOrder && <OrderDetails orderId={selectedOrder} parts={partsByOrder.get(selectedOrder) ?? []} />}
+          {selectedOrder && <OrderDetails orderId={selectedOrder} parts={partsByOrder.get(selectedOrder) ?? []}
+            waiting={plan.unassigned?.[selectedOrder]} />}
         </section>
       )}
-      <CityMap city={city} traces={traces} legend={legend} onSelectPvz={onSelectPvz} />
+      <CityMap city={isResult ? { ...city, routes: plan.routes } : city}
+        traces={traces} legend={legend} onSelectPvz={onSelectPvz} />
       {showDetours && (
         <section className="night-plan-panel">
           <h2>Вставленные остановки</h2>
@@ -229,7 +248,7 @@ export default function NightPlan({
           ) : <p>В плане нет перебросок.</p>}
           <dl className="city-map-costs">
             <div><dt>Стоимость ночного плана</dt><dd>{formatMoney(plan.total_money_kop)}</dd></div>
-            <div><dt>Доставка через хаб</dt><dd>{formatMoney(plan.hub_money_kop)}</dd></div>
+            <div><dt>Обычные товары через хаб</dt><dd>{formatMoney(plan.hub_money_kop)}</dd></div>
           </dl>
         </section>
       )}

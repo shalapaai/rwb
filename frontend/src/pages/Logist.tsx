@@ -1,15 +1,79 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { paths } from "../api-types";
 import NightPlan from "../components/graph/NightPlan";
 import WhatIf from "../components/graph/WhatIf";
+import type { City, Order, Plan } from "../components/graph/plan-graph";
 
 type RoutingDemo = paths["/routing/demo"]["get"]["responses"][200]["content"]["application/json"];
-type LoadState = { status: "loading" | "error" } | { status: "ready"; demo: RoutingDemo };
+type Workspace = { city: City; plan: Plan };
+type LoadState = { status: "loading" | "error" } | { status: "ready"; workspace: Workspace };
+const orderStorageKey = "logist.nightly-orders.v1";
 
-function RoutingWorkspace({ demo }: { demo: RoutingDemo }) {
+function loadOrders(city: City): Order[] {
+  try {
+    const stored = sessionStorage.getItem(orderStorageKey);
+    if (stored !== null) {
+      const orders: Order[] = JSON.parse(stored);
+      const skus = new Set(city.skus.map((sku) => sku.id));
+      const destinations = new Set(city.nodes.filter((node) => node.kind === "pvz").map((node) => node.id));
+      if (Array.isArray(orders) && orders.every((order) => (
+        typeof order?.id === "string" && skus.has(order.sku_id) && destinations.has(order.pvz_id)
+        && Number.isSafeInteger(order.qty) && (order.qty ?? 0) > 0
+      )) && new Set(orders.map((order) => order.id)).size === orders.length) return orders;
+    }
+  } catch {
+    // При недоступном хранилище исходный сценарий всё равно можно открыть.
+  }
+  return city.orders ?? [];
+}
+
+function planCity(city: City, signal: AbortSignal) {
+  return api<Plan>("/routing/plan", "logist", { method: "POST", body: JSON.stringify(city), signal });
+}
+
+function RoutingWorkspace({ initial }: { initial: Workspace }) {
   const [mode, setMode] = useState<"plan" | "what-if">("plan");
   const [source, setSource] = useState<string | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
+  const [{ city, plan }, setWorkspace] = useState(initial);
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const pending = useRef<AbortController | null>(null);
+  const orders = city.orders ?? [];
+
+  useEffect(() => () => pending.current?.abort(), []);
+
+  async function recalculate(nextOrders: Order[], nextSelection: string | null) {
+    if (pending.current) return;
+    const controller = new AbortController();
+    pending.current = controller;
+    setStatus("loading");
+    const nextCity = { ...city, orders: nextOrders };
+    try {
+      const nextPlan = await planCity(nextCity, controller.signal);
+      if (controller.signal.aborted) return;
+      setWorkspace({ city: nextCity, plan: nextPlan });
+      setSelectedOrder(nextSelection);
+      setStatus("idle");
+      try {
+        sessionStorage.setItem(orderStorageKey, JSON.stringify(nextOrders));
+      } catch {
+        // Сценарий доступен до закрытия экрана, даже если хранение отключено.
+      }
+    } catch {
+      if (!controller.signal.aborted) setStatus("error");
+    } finally {
+      pending.current = null;
+    }
+  }
+
+  function addOrder(draft: Omit<Order, "id">) {
+    const ids = new Set(orders.map((order) => order.id));
+    let number = 1;
+    while (ids.has(`O-${number}`)) number += 1;
+    const id = `O-${number}`;
+    void recalculate([...orders, { ...draft, id }], id);
+  }
 
   return (
     <>
@@ -21,14 +85,21 @@ function RoutingWorkspace({ demo }: { demo: RoutingDemo }) {
           Куда нужно товару
         </button>
       </div>
+      {status === "loading" && <p role="status">Пересчитываем ночной план…</p>}
+      {status === "error" && <p role="alert">Не удалось пересчитать план. Повторите действие.</p>}
       <div hidden={mode !== "plan"}>
-        <NightPlan city={demo.city} plan={demo.plan} onSelectPvz={(pvz) => {
-          setSource(pvz);
-          setMode("what-if");
-        }} />
+        <NightPlan city={city} plan={plan} selectedOrder={selectedOrder}
+          onSelectOrder={setSelectedOrder} onSelectPvz={(pvz) => {
+            setSource(pvz);
+            setMode("what-if");
+          }} />
       </div>
       {mode === "what-if" && (
-        <WhatIf city={demo.city} plan={demo.plan} source={source} onSelectPvz={setSource} />
+        <WhatIf city={city} plan={plan} source={source} onSelectPvz={setSource}
+          selectedOrder={selectedOrder} onSelectOrder={setSelectedOrder}
+          busy={status === "loading"} onAdd={addOrder}
+          onRemove={(id) => void recalculate(orders.filter((order) => order.id !== id),
+            selectedOrder === id ? null : selectedOrder)} />
       )}
     </>
   );
@@ -42,8 +113,11 @@ export default function Logist() {
   useEffect(() => {
     const controller = new AbortController();
     api<RoutingDemo>("/routing/demo", "logist", { signal: controller.signal })
-      .then((demo) => {
-        if (!controller.signal.aborted) setLoad({ status: "ready", demo });
+      .then(async (demo) => {
+        if (controller.signal.aborted) return;
+        const city = { ...demo.city, orders: loadOrders(demo.city) };
+        const plan = await planCity(city, controller.signal);
+        if (!controller.signal.aborted) setLoad({ status: "ready", workspace: { city, plan } });
       })
       .catch(() => {
         if (!controller.signal.aborted) setLoad({ status: "error" });
@@ -72,7 +146,7 @@ export default function Logist() {
           </button>
         </div>
       )}
-      {load.status === "ready" && <RoutingWorkspace demo={load.demo} />}
+      {load.status === "ready" && <RoutingWorkspace initial={load.workspace} />}
     </section>
   );
 }
