@@ -5,7 +5,8 @@ A — не вскрыт → на полку; B — вскрыт, упаковк�
 C — восстановить нельзя → в хаб. На полку кладём, только если хватает места:
 занято + объём ≤ склад × доля mesh (10–50%, выбирает ПВЗ); иначе — в хаб с причиной.
 За проверку (при любой оценке) и переупаковку маркетплейс платит ПВЗ тариф, а ПВЗ
-несёт реальную затрату — время сотрудника. Всё через ledger.post, сумма каждой проводки 0.
+несёт реальные затраты — время сотрудника и пакет для B. Все числа — из economics.params
+(N8), начисления — через ledger.post, сумма каждой проводки 0.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -15,7 +16,8 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.modules.inventory import tariffs
+from app.modules.economics.params import DEFAULTS as P
+from app.modules.economics.params import kopecks
 from app.modules.inventory.models import Product, Return, Unit
 from app.modules.ledger.service import post
 from app.modules.network.models import Node
@@ -108,17 +110,22 @@ def accept_refusal(
     )
 
     pvz = f"pvz:{pvz_id}"
-    ops = [("check", tariffs.CHECK_TARIFF_KOP, tariffs.CHECK_MINUTES)]
+    # (операция, тариф МП → ПВЗ, реальные затраты ПВЗ во внешний мир)
+    ops = [("check", P.inspection_fee_kop, [("ext:labour", kopecks(P.labour(P.inspection_min)))])]
     if decision == "repack":
-        ops.append(("repack", tariffs.REPACK_TARIFF_KOP, tariffs.REPACK_MINUTES))
+        repack_costs = [
+            ("ext:labour", kopecks(P.labour(P.repack_min))),
+            ("ext:materials", P.pack_kop),  # пакет
+        ]
+        ops.append(("repack", P.repack_fee_kop, repack_costs))
     txn_ids = []
-    for op, tariff, minutes in ops:
+    for op, fee, costs in ops:
         # ключи проводок выводятся из ключа запроса — повтор их тоже не задвоит
-        paid = post(session, "mesh", "tariff", order_id, [("mp", -tariff), (pvz, tariff)],
+        paid = post(session, "mesh", "tariff", order_id, [("mp", -fee), (pvz, fee)],
                     key=f"refusal:{key}:{op}:tariff")  # fmt: skip
-        labour = tariffs.labour_kop(minutes)
-        cost = post(session, "mesh", "cost", order_id, [(pvz, -labour), ("ext:labour", labour)],
-                    key=f"refusal:{key}:{op}:labour")  # fmt: skip
+        spent = sum(amount for _, amount in costs)
+        cost = post(session, "mesh", "cost", order_id, [(pvz, -spent), *costs],
+                    key=f"refusal:{key}:{op}:cost")  # fmt: skip
         txn_ids += [paid.id, cost.id]
 
     return {

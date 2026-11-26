@@ -3,6 +3,8 @@
 import pytest
 from sqlalchemy import func, select
 
+from app.modules.economics.params import DEFAULTS as P
+from app.modules.economics.params import kopecks
 from app.modules.inventory.models import Product, Return, Seller, Unit
 from app.modules.ledger.models import LedgerEntry, LedgerTxn
 from app.modules.ledger.service import unbalanced_txn_ids
@@ -10,6 +12,9 @@ from app.modules.network.models import Node
 from app.modules.ops.models import SimClock
 
 OP = {"X-Role": "pvz_operator"}
+# числа из economics.params (N8): при 330 ₽/ч проверка 3 мин = 16,50 ₽, переупаковка 2 мин = 11 ₽
+CHECK_LABOUR = kopecks(P.labour(P.inspection_min))
+REPACK_LABOUR = kopecks(P.labour(P.repack_min))
 
 
 @pytest.fixture
@@ -50,9 +55,10 @@ def test_grade_a_goes_to_shelf_and_pays_check(client, db, pvz):
     assert r["used_l"] == 2.0 and r["limit_l"] == 4.0
     unit = db.get(Unit, r["unit_id"])
     assert unit.status == "on_shelf" and unit.grade == "A" and unit.shelved_at is not None
-    # МП платит ПВЗ 15 ₽ за проверку, ПВЗ тратит 3 мин сотрудника = 12,50 ₽
+    # МП платит ПВЗ тариф за проверку, ПВЗ платит за время сотрудника
+    assert CHECK_LABOUR == 1650 and P.inspection_fee_kop == 1500
     assert legs(db, r["txn_ids"]) == sorted(
-        [("mp", -1500), ("pvz:T-A", 1500), ("pvz:T-A", -1250), ("ext:labour", 1250)]
+        [("mp", -1500), ("pvz:T-A", 1500), ("pvz:T-A", -1650), ("ext:labour", 1650)]
     )
     assert unbalanced_txn_ids(db) == []
 
@@ -61,8 +67,13 @@ def test_grade_b_is_repacked_and_pays_both(client, db, pvz):
     r = refuse(client, "B", "k-b").json()
     assert r["placement"] == "shelf" and r["decision"] == "repack"
     assert len(r["txn_ids"]) == 4  # проверка и переупаковка: тариф + труд каждая
-    pvz_net = sum(a for acc, a in legs(db, r["txn_ids"]) if acc == "pvz:T-A")
-    assert pvz_net == 2 * (1500 - 1250)  # ПВЗ зарабатывает по 2,50 ₽ на каждой операции
+    rows = legs(db, r["txn_ids"])
+    assert ("ext:materials", P.pack_kop) in rows  # пакет 3,06 ₽ — реальная затрата
+    pvz_net = sum(a for acc, a in rows if acc == "pvz:T-A")
+    expected = (P.inspection_fee_kop - CHECK_LABOUR) + (
+        P.repack_fee_kop - REPACK_LABOUR - P.pack_kop
+    )
+    assert pvz_net == expected == -56  # −1,50 ₽ на проверке, +0,94 ₽ на переупаковке
 
 
 def test_grade_c_goes_to_hub_but_check_is_paid(client, db, pvz):
