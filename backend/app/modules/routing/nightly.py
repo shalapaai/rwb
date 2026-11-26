@@ -27,6 +27,7 @@ from app.modules.routing.models import (
     Stop,
     VanRoute,
     Variant,
+    is_unique_sku,
 )
 from app.modules.routing.network import (
     Capacity,
@@ -66,23 +67,33 @@ class Evaluation:
     cap: Capacity
     stock_after: dict[tuple[str, str], int]  # свободно на полках после плана
     incoming: dict[tuple[str, str], int]  # едет газелью под прогноз, на полку ещё не лёг
+    unassigned: dict[str, int]
+
+    @property
+    def money_kop(self) -> int:
+        return sum(a.money_kop * a.qty for a in self.assignments) + sum(
+            m.money_kop * m.qty for m in self.movements
+        )
 
 
 def evaluate(city: City, routes: list[VanRoute], nodes: dict[str, Node]) -> Evaluation:
-    cap = Capacity.from_routes(routes, nodes, city.params)
+    cap = Capacity.from_routes(routes, nodes, city.params, next_routes=city.routes)
     tgt = targets(city, nodes)
     stock: dict[tuple[str, str], int] = {}
     for s in city.stock:
+        if is_unique_sku(s.sku_id) and nodes[s.node_id].kind != NodeKind.PVZ:
+            continue
         stock[(s.node_id, s.sku_id)] = stock.get((s.node_id, s.sku_id), 0) + s.qty
 
     volume = {sku.id: sku.volume_l for sku in city.skus}
     demand = {sku.id: 0 for sku in city.skus}
     for o in city.orders:
         demand[o.sku_id] += o.qty
-    sku_order = sorted(demand, key=lambda s: (-demand[s], s))  # сначала самые востребованные
+    sku_order = sorted(demand, key=lambda s: (not is_unique_sku(s), -demand[s], s))
 
     assignments: list[Assignment] = []
     movements: list[Movement] = []
+    unassigned: dict[str, int] = {}
     cost = 0
     for sku_id in sku_order:
         sku_stock = {n: q for (n, s), q in stock.items() if s == sku_id}
@@ -96,17 +107,18 @@ def evaluate(city: City, routes: list[VanRoute], nodes: dict[str, Node]) -> Eval
         res = solve_sku(city, routes, nodes, cap, prob)
         assignments += res.assignments
         movements += res.movements
+        unassigned.update(res.unassigned)
         cost += res.cost
 
     stock_after = dict(stock)
     incoming: dict[tuple[str, str], int] = {}
     for a in assignments:
-        if a.variant != Variant.HUB:
+        if a.variant != Variant.HUB or a.legs:
             stock_after[(a.source_node, a.sku_id)] -= a.qty
     for m in movements:
         stock_after[(m.from_node, m.sku_id)] -= m.qty
         incoming[(m.to_node, m.sku_id)] = incoming.get((m.to_node, m.sku_id), 0) + m.qty
-    return Evaluation(assignments, movements, cost, cap, stock_after, incoming)
+    return Evaluation(assignments, movements, cost, cap, stock_after, incoming, unassigned)
 
 
 # ---------------------------------------------------------------- шаг 4
@@ -121,51 +133,71 @@ class Insertion:
     added_km: float
     added_min: int
     cost_kop: int
+    is_repeat: bool = False
 
 
 def insertion_options(
     city: City, routes: list[VanRoute], nodes: dict[str, Node], base_duration: dict[str, int]
 ) -> list[Insertion]:
-    """Для каждой газели и каждого ПВЗ не на её маршруте — самое дешёвое место вставки.
+    """Новые остановки и возможные повторные заезды в ПВЗ, где ждут заказ.
 
     Ограничения (docs/02, «Граница выгодности»): к рейсу добавляется не больше
     min(20 мин, 10% длительности), не больше 2 новых остановок.
     """
     p = city.params
+    destinations = {o.pvz_id for o in city.orders}
     options = []
     for r in routes:
         if sum(s.added for s in r.stops) >= p.max_new_stops:
             continue
         limit = min(p.max_added_min_abs, p.max_added_share * base_duration[r.id])
         already = route_duration_min(r, nodes, p) - base_duration[r.id]
-        on_route = {s.node_id for s in r.stops}
+        last_visit = {s.node_id: k for k, s in enumerate(r.stops)}
+        added_nodes = {s.node_id for s in r.stops if s.added}
         chain = [r.depot_id] + [s.node_id for s in r.stops] + [r.depot_id]
         # когда газель уезжает из точки chain[pos]: из депо — в 0, с остановки — после стоянки
         depart = [0] + [s.eta_min + s.service_min for s in r.stops]
         for x in nodes.values():
-            if x.kind != NodeKind.PVZ or not x.is_open or x.id in on_route:
+            if x.kind != NodeKind.PVZ or not x.is_open:
                 continue
-            best = None
-            for pos in range(len(chain) - 1):
+            previous = last_visit.get(x.id)
+            is_repeat = previous is not None
+            if is_repeat and (x.id not in destinations or x.id in added_nodes):
+                continue
+            # Между визитами должна быть остановка, где можно забрать товар.
+            first = 0 if previous is None else previous + 2
+            positions = []
+            for pos in range(first, len(chain) - 1):
                 a, b = nodes[chain[pos]], nodes[chain[pos + 1]]
                 km = dist_km(a, x, p) + dist_km(x, b, p) - dist_km(a, b, p)
-                if best is None or km < best[1]:
-                    best = (pos, km)
-            pos, km = best
-            a, b = nodes[chain[pos]], nodes[chain[pos + 1]]
-            to_x = travel_min(dist_km(a, x, p), p)
-            # насколько позже станут все следующие остановки (и возврат в депо)
-            minutes = (
-                to_x
-                + p.stop_service_min
-                + travel_min(dist_km(x, b, p), p)
-                - travel_min(dist_km(a, b, p), p)
-            )
-            if already + minutes > limit:
-                continue
-            cost = round(km * p.van_kop_per_km + minutes * p.van_kop_per_min)
-            eta = depart[pos] + to_x
-            options.append(Insertion(r.id, x.id, pos, eta, round(km, 2), minutes, cost))
+                positions.append((km, pos))
+            if not is_repeat:
+                # Для нового ПВЗ сохраняем выбор кратчайшего крюка.
+                positions = [min(positions)]
+            for km, pos in positions:
+                a, b = nodes[chain[pos]], nodes[chain[pos + 1]]
+                to_x = travel_min(dist_km(a, x, p), p)
+                minutes = (
+                    to_x
+                    + p.stop_service_min
+                    + travel_min(dist_km(x, b, p), p)
+                    - travel_min(dist_km(a, b, p), p)
+                )
+                if already + minutes > limit:
+                    continue
+                cost = round(km * p.van_kop_per_km + minutes * p.van_kop_per_min)
+                eta = depart[pos] + to_x
+                if previous is not None:
+                    if eta <= r.stops[previous].eta_min:
+                        continue  # визиты в один ПВЗ должны различаться по времени
+                    if (
+                        pos < len(r.stops)
+                        and eta + p.stop_service_min > r.stops[pos].eta_min + minutes
+                    ):
+                        continue  # повторный визит не должен накладываться на следующую остановку
+                options.append(
+                    Insertion(r.id, x.id, pos, eta, round(km, 2), minutes, cost, is_repeat)
+                )
     return options
 
 
@@ -205,18 +237,30 @@ def nightly_plan(city: City) -> tuple[Plan, Evaluation]:
 
     for _ in range(p.max_iterations):  # шаг 5: повторы
         best = None
+        current_money = current.money_kop
+        waiting = sum(current.unassigned.values())
         for ins in insertion_options(city, routes, nodes, base_duration):
             trial_routes = apply_insertion(routes, ins, city)
             trial = evaluate(city, trial_routes, nodes)
-            gain = current.cost - (
-                trial.cost + ins.cost_kop
-            )  # крюк окупается, только если gain > 0
-            if gain > 0 and (best is None or gain > best[0]):
-                best = (gain, ins, trial_routes, trial)
+            extra_delivered = waiting - sum(trial.unassigned.values())
+            gain = current.cost - (trial.cost + ins.cost_kop)
+            # Для уникального товара сначала ищем рейс, стоимость сравниваем между рейсами.
+            if (
+                extra_delivered == 0
+                and ins.is_repeat
+                and trial.money_kop + ins.cost_kop >= current_money
+            ):
+                continue
+            rank = (extra_delivered, gain)
+            if rank > (0, 0) and (best is None or rank > best[0]):
+                best = (rank, ins, trial_routes, trial)
         if best is None:
             break
-        gain, ins, routes, current = best
+        (_, gain), ins, routes, current = best
         detour_cost += ins.cost_kop
+        for stop in inserted:
+            if stop.route_id == ins.route_id and stop.position >= ins.position:
+                stop.position += 1  # позиция должна указывать на визит в итоговом маршруте
         inserted.append(
             InsertedStop(
                 route_id=ins.route_id,
@@ -229,18 +273,14 @@ def nightly_plan(city: City) -> tuple[Plan, Evaluation]:
             )
         )
 
-    money = (
-        sum(a.money_kop * a.qty for a in current.assignments)
-        + sum(m.money_kop * m.qty for m in current.movements)
-        + detour_cost
-    )
     plan = Plan(
         routes=routes,
         assignments=current.assignments,
         movements=current.movements,
         inserted_stops=inserted,
-        total_money_kop=money,
-        hub_money_kop=sum(o.qty for o in city.orders) * p.hub_kop,
+        unassigned=current.unassigned,
+        total_money_kop=current.money_kop + detour_cost,
+        hub_money_kop=sum(o.qty for o in city.orders if not is_unique_sku(o.sku_id)) * p.hub_kop,
         objective_kop=current.cost + detour_cost,
     )
     return plan, current

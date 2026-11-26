@@ -16,10 +16,12 @@ from app.modules.routing.models import (
     City,
     Leg,
     Node,
+    NodeKind,
     Order,
     Params,
     VanRoute,
     Variant,
+    is_unique_sku,
 )
 from app.modules.routing.network import Capacity, dist_km, hours_at, lam, legs_of
 
@@ -105,22 +107,32 @@ def _van_candidate(st: DayState, g: nx.DiGraph, source: str, o: Order) -> Candid
 # ---------------------------------------------------------------- выбор варианта
 
 
-def choose(st: DayState, o: Order) -> Decision:
-    p = st.params
-    cands: list[Candidate] = []
-    pvz = st.nodes[o.pvz_id]
-    hub = Candidate(
+def hub_candidate(p: Params, sku_id: str) -> Candidate:
+    if is_unique_sku(sku_id):
+        return Candidate(
+            variant=Variant.HUB, source_node="HUB", reason="в хабе нет уникального товара"
+        )
+    return Candidate(
         variant=Variant.HUB,
         source_node="HUB",
         money_kop=p.hub_kop,
         hours=p.hub_hours,
         reason="базовая схема: хаб + магистраль",
     )
+
+
+def choose(st: DayState, o: Order) -> Decision:
+    p = st.params
+    cands: list[Candidate] = []
+    pvz = st.nodes[o.pvz_id]
+    hub = hub_candidate(p, o.sku_id)
     if not pvz.is_open:
         hub.reason = f"{o.pvz_id} закрыт — заказ нельзя принять"
         return Decision(order_id=o.id, candidates=[hub], assignment=None)
 
     def free(node_id: str) -> int:
+        if is_unique_sku(o.sku_id) and st.nodes[node_id].kind != NodeKind.PVZ:
+            return 0
         return st.stock.get((node_id, o.sku_id), 0)
 
     # 1. свой ПВЗ
@@ -175,7 +187,7 @@ def choose(st: DayState, o: Order) -> Decision:
     for n in sources:
         cands.append(_van_candidate(st, g, n.id, o))
 
-    # 4. хаб — всегда возможен
+    # 4. отгрузка из хаба возможна для обычных артикулов.
     cands.append(hub)
 
     hub_gen = p.hub_kop + lam(p.hub_hours, p)
@@ -187,7 +199,8 @@ def choose(st: DayState, o: Order) -> Decision:
             c.money_kop = None
             continue
         c.generalized_kop = c.money_kop + lam(c.hours, p)
-        c.gain_vs_hub_kop = hub_gen - c.generalized_kop
+        if hub.money_kop is not None:
+            c.gain_vs_hub_kop = hub_gen - c.generalized_kop
 
     feasible = [c for c in cands if c.generalized_kop is not None]
     if not feasible:

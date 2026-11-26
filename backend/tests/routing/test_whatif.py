@@ -26,9 +26,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 @pytest.mark.parametrize(
     ("source", "sku", "dest", "variant", "reason", "money", "hours", "best_variant", "best_source"),
     [
-        ("ПВЗ-A", "SKU-001", "ПВЗ-B", "van", "газель G1", 3200, 11.28, "van", "ПВЗ-A"),
+        ("ПВЗ-A", "SKU-001", "ПВЗ-B", "van", "газель G1", 3200, 11.37, "van", "ПВЗ-A"),
         ("ПВЗ-J", "SKU-005", "ПВЗ-H", "hub", "уже проехала ПВЗ-H", 6040, 36.0, "own", "ПВЗ-H"),
         ("ПВЗ-A", "SKU-001", "ПВЗ-D", "hub", "разные газели", 6040, 36.0, "hub", "HUB"),
+        ("ПВЗ-X", "SKU-003", "ПВЗ-A", "hub", "уже проехала ПВЗ-A", 6040, 36.0, "own", "ПВЗ-A"),
     ],
 )
 def test_demo_what_if(
@@ -65,7 +66,7 @@ def test_demo_what_if(
                 "from_node": source,
                 "to_node": dest,
                 "depart_min": 46,
-                "arrive_min": 77,
+                "arrive_min": 82,
             }
         ]
     else:
@@ -90,6 +91,25 @@ def test_repeated_preview_keeps_live_day_state(client: TestClient) -> None:
     assert first.json()["hub"]["total_money_kop"] == 12080
     assert routing._demo == before
     assert routing._replies == {}
+
+
+def test_unique_stock_cannot_be_ordered_from_hub(client: TestClient) -> None:
+    choice = {"sku_id": "UNIQUE-ПВЗ-G", "qty": 1}
+    preview = client.post(
+        "/routing/what-if",
+        headers=HEADERS,
+        json={**choice, "source_pvz": "ПВЗ-G", "dest_pvz": "ПВЗ-D"},
+    ).json()
+    assert preview["hub"]["total_money_kop"] is None
+    assert preview["forced"]["source_node"] == "ПВЗ-G"
+    assert preview["forced"]["total_money_kop"] is None
+    assert preview["best"]["assignment"] is None
+    day = client.post(
+        "/routing/demo/orders",
+        headers={**HEADERS, "Idempotency-Key": "unique-with-no-route"},
+        json={**choice, "id": "unique-with-no-route", "pvz_id": "ПВЗ-D"},
+    ).json()
+    assert day["assignment"] is None
 
 
 def test_preview_uses_stock_remaining_after_an_order(client: TestClient) -> None:

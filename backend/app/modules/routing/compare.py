@@ -9,25 +9,34 @@
 """
 
 from app.modules.routing.daily import choose, day_state
-from app.modules.routing.models import Assignment, City, Order, SchemeSummary, Variant
+from app.modules.routing.models import (
+    Assignment,
+    City,
+    Order,
+    SchemeSummary,
+    Variant,
+    is_unique_sku,
+)
 from app.modules.routing.network import Capacity
 from app.modules.routing.nightly import nightly_plan
 
 
 def _summary(
-    name: str, assignments: list[Assignment], extra_kop: int = 0, added_km: float = 0.0
+    name: str, city: City, assignments: list[Assignment], extra_kop: int = 0, added_km: float = 0.0
 ) -> SchemeSummary:
-    units = sum(a.qty for a in assignments) or 1
+    requested = sum(o.qty for o in city.orders)
+    units = sum(a.qty for a in assignments)
     money = sum(a.money_kop * a.qty for a in assignments) + extra_kop
     hub_units = sum(a.qty for a in assignments if a.variant == Variant.HUB)
     return SchemeSummary(
         scheme=name,
         money_kop=money,
-        money_per_unit_kop=round(money / units),
-        avg_hours=round(sum(a.hours * a.qty for a in assignments) / units, 2),
-        local_share=round(1 - hub_units / units, 3),
+        money_per_unit_kop=round(money / (units or 1)),
+        avg_hours=round(sum(a.hours * a.qty for a in assignments) / (units or 1), 2),
+        local_share=round((units - hub_units) / (requested or 1), 3),
         added_km=round(added_km, 2),
         hub_units=hub_units,
+        unassigned_units=requested - units,
     )
 
 
@@ -44,7 +53,9 @@ def _hub(o: Order, city: City) -> Assignment:
 
 
 def all_hub(city: City) -> SchemeSummary:
-    return _summary("Всё через хаб", [_hub(o, city) for o in city.orders])
+    return _summary(
+        "Всё через хаб", city, [_hub(o, city) for o in city.orders if not is_unique_sku(o.sku_id)]
+    )
 
 
 def greedy(city: City) -> SchemeSummary:
@@ -55,11 +66,11 @@ def greedy(city: City) -> SchemeSummary:
     cap = Capacity.from_routes(city.routes, nodes, city.params)
     st = day_state(city, city.routes, cap, stock, [])
     for o in city.orders:
-        if choose(st, o).assignment is None:
+        if choose(st, o).assignment is None and not is_unique_sku(o.sku_id):
             # ни один вариант не успевает к сроку — заказ всё равно исполняется через хаб,
             # иначе он выпал бы из сравнения и исказил ₽ на единицу
             st.assignments.append(_hub(o, city))
-    return _summary("По одному заказу (жадно)", st.assignments)
+    return _summary("По одному заказу (жадно)", city, st.assignments)
 
 
 def nightly(city: City) -> SchemeSummary:
@@ -68,7 +79,7 @@ def nightly(city: City) -> SchemeSummary:
     plan, _ = nightly_plan(city)
     detours = sum(i.cost_kop for i in plan.inserted_stops)
     km = sum(i.added_km for i in plan.inserted_stops)
-    return _summary("Ночной план", plan.assignments, extra_kop=detours, added_km=km)
+    return _summary("Ночной план", city, plan.assignments, extra_kop=detours, added_km=km)
 
 
 def compare(city: City) -> list[SchemeSummary]:

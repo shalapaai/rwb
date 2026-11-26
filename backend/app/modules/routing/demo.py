@@ -1,12 +1,14 @@
 """Синтетический город для демо и тестов. Все данные выдуманы (п. 8.4 положения).
 
-Координаты — км; хаб в 15–20 км от города. Три газели от хаба:
+Координаты — км; хаб в точке (-15, 0), отдельно от группы городских ПВЗ.
+Три газели от хаба:
   G1: A → C → B → E      G2: D → F → G      G3: H → I → J
 ПВЗ X не стоит ни в одном маршруте — к нему выгоден крюк, только если там ждут
 несколько заказов.
 """
 
 from app.modules.routing.models import (
+    UNIQUE_SKU_PREFIX,
     City,
     Forecast,
     Node,
@@ -22,17 +24,18 @@ from app.modules.routing.network import dist_km, travel_min
 
 NODES = [
     Node(id="HUB", kind=NodeKind.HUB, x_km=-15, y_km=0),  # хаб/СЦ за городом
+    # После загородного плеча G1 объезжает кварталы: на север, на восток и снова на север.
     Node(id="ПВЗ-A", x_km=6, y_km=2),
-    Node(id="ПВЗ-C", x_km=7.5, y_km=2.6),
-    Node(id="ПВЗ-B", x_km=9, y_km=3),
-    Node(id="ПВЗ-E", x_km=11, y_km=4),
-    Node(id="ПВЗ-X", x_km=12, y_km=5.5),
-    Node(id="ПВЗ-D", x_km=6, y_km=7),
-    Node(id="ПВЗ-F", x_km=8, y_km=8),
-    Node(id="ПВЗ-G", x_km=10, y_km=8),
-    Node(id="ПВЗ-H", x_km=5, y_km=10),
-    Node(id="ПВЗ-I", x_km=7, y_km=11),
-    Node(id="ПВЗ-J", x_km=9, y_km=11),
+    Node(id="ПВЗ-C", x_km=5.1, y_km=5),
+    Node(id="ПВЗ-B", x_km=7.4, y_km=4.9),
+    Node(id="ПВЗ-E", x_km=9.1, y_km=7),
+    Node(id="ПВЗ-X", x_km=10.25, y_km=8.4),
+    Node(id="ПВЗ-D", x_km=1.2, y_km=9.5),
+    Node(id="ПВЗ-F", x_km=3, y_km=5.6),
+    Node(id="ПВЗ-G", x_km=5.8, y_km=8.7),
+    Node(id="ПВЗ-H", x_km=11.3, y_km=1.4),
+    Node(id="ПВЗ-I", x_km=14.4, y_km=3.4),
+    Node(id="ПВЗ-J", x_km=14.1, y_km=8.5),
 ]
 
 
@@ -55,7 +58,7 @@ def make_route(
     return VanRoute(id=route_id, depot_id=depot, capacity=capacity, stops=out)
 
 
-def demo_city(params: Params | None = None) -> City:
+def demo_city(params: Params | None = None, *, include_unique_stock: bool = False) -> City:
     p = params or Params()
     routes = [
         make_route("G1", [("ПВЗ-A", 60), ("ПВЗ-C", 50), ("ПВЗ-B", 70), ("ПВЗ-E", 60)], p),
@@ -74,6 +77,20 @@ def demo_city(params: Params | None = None) -> City:
         StockItem(node_id="ПВЗ-H", sku_id="SKU-005", qty=10),
         StockItem(node_id="ПВЗ-J", sku_id="SKU-005", qty=4),
     ]
+    # SKU-003 даёт источник для what-if и сохраняет исходный спрос ночного демо.
+    stocked_nodes = {item.node_id for item in stock}
+    stock.extend(
+        StockItem(node_id=node.id, sku_id="SKU-003", qty=3)
+        for node in NODES
+        if node.kind == NodeKind.PVZ and node.id not in stocked_nodes
+    )
+    if include_unique_stock:
+        # Эти партии нужны на схеме логиста, чтобы проверить перевозку с конкретной полки.
+        for node in NODES:
+            if node.kind == NodeKind.PVZ:
+                sku = Sku(id=f"{UNIQUE_SKU_PREFIX}{node.id}")
+                skus.append(sku)
+                stock.append(StockItem(node_id=node.id, sku_id=sku.id, qty=3))
     orders = [
         Order(id="O-1", sku_id="SKU-001", pvz_id="ПВЗ-B"),  # попутно G1: A раньше B
         Order(id="O-2", sku_id="SKU-001", pvz_id="ПВЗ-A"),  # свой ПВЗ

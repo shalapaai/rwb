@@ -105,7 +105,8 @@ def test_network_reads_routes_and_current_shelf_load(
     assert set(nodes) == {node.id for node in city.nodes}
     assert nodes["ПВЗ-A"]["shelf_used_l"] == 40
     assert nodes["ПВЗ-A"]["shelf_limit_l"] == 1100
-    assert nodes["ПВЗ-B"]["shelf_used_l"] == 0
-    assert nodes["ПВЗ-B"]["shelf_limit_l"] == 500
+    assert nodes["ПВЗ-B"]["shelf_used_l"] == 6
+    assert nodes["ПВЗ-B"]["shelf_limit_l"] == 506
+    assert all(nodes[node.id]["shelf_used_l"] > 0 for node in city.nodes if node.kind == "pvz")
     assert nodes["HUB"]["shelf_limit_l"] == 0
     assert payload["routes"] == [route.model_dump(mode="json") for route in city.routes]

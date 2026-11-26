@@ -58,7 +58,7 @@ def _state() -> tuple[DemoState, DayState]:
 
 
 def reset_demo_state() -> DemoState:
-    city = demo_city()
+    city = demo_city(include_unique_stock=True)
     plan, ev = nightly_plan(city)
     view = DemoState(city=city, plan=plan)
     _demo["view"] = view
@@ -97,7 +97,7 @@ def preview_route(request: WhatIfRequest, _: Planner) -> WhatIfResult:
         view, day = _state()
         city = view.city
     else:
-        city = demo_city()
+        city = demo_city(include_unique_stock=True)
         plan, evaluation = nightly_plan(city)
         day = day_state(city, plan.routes, evaluation.cap, evaluation.stock_after, plan.assignments)
 

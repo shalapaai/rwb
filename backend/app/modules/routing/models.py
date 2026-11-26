@@ -9,6 +9,12 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
 
+UNIQUE_SKU_PREFIX = "UNIQUE-"
+
+
+def is_unique_sku(sku_id: str) -> bool:
+    return sku_id.startswith(UNIQUE_SKU_PREFIX)
+
 
 class Params(BaseModel):
     # --- стоимость обслуживания единицы, коп. ---
@@ -228,8 +234,9 @@ class Plan(BaseModel):
     assignments: list[Assignment]
     movements: list[Movement]
     inserted_stops: list[InsertedStop]
+    unassigned: dict[str, int] = Field(default_factory=dict)  # заказ → штук без маршрута
     total_money_kop: int  # заказы + переброски + крюки
-    hub_money_kop: int  # те же заказы, если всё везти через хаб
+    hub_money_kop: int  # цена заказов, для которых доступна отгрузка из хаба
     objective_kop: int  # то, что минимизирует алгоритм
 
 
@@ -241,3 +248,4 @@ class SchemeSummary(BaseModel):
     local_share: float  # доля единиц, исполненных без хаба
     added_km: float
     hub_units: int
+    unassigned_units: int = 0

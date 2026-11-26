@@ -1,5 +1,6 @@
 """Проверки алгоритма логистики на маленьких городах, где ответ известен заранее."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -67,7 +68,7 @@ def test_own_pvz_first():
     assert by_order(plan)["o"].variant == Variant.OWN
 
 
-def test_van_only_in_route_direction():
+def test_van_only_in_route_direction_without_detours():
     r = [route("R", [("A", 60), ("B", 120)])]
     forward, _ = nightly_plan(city(r, [("A", 5)], [Order(id="o", sku_id="S", pvz_id="B")]))
     a = by_order(forward)["o"]
@@ -75,7 +76,9 @@ def test_van_only_in_route_direction():
     assert [(leg.from_node, leg.to_node) for leg in a.legs] == [("A", "B")]
     assert a.money_kop == 2490 + 710
 
-    backward, _ = nightly_plan(city(r, [("B", 5)], [Order(id="o", sku_id="S", pvz_id="A")]))
+    c = city(r, [("B", 5)], [Order(id="o", sku_id="S", pvz_id="A")])
+    c.params.max_new_stops = 0
+    backward, _ = nightly_plan(c)
     assert by_order(backward)["o"].variant == Variant.HUB  # газель уже проехала A
 
 
@@ -115,6 +118,108 @@ def test_detour_respects_time_limit():
     plan, _ = nightly_plan(city(r, [("A", 50)], [Order(id="o", sku_id="S", qty=40, pvz_id="Z")]))
     assert plan.inserted_stops == []  # Z слишком далеко: крюк больше лимита
     assert by_order(plan)["o"].variant == Variant.HUB
+
+
+def return_city(source: str, qty: int, available: int) -> City:
+    return City(
+        nodes=[
+            Node(id="HUB", kind=NodeKind.HUB, x_km=-15, y_km=0),
+            Node(id="ПВЗ-D", x_km=1.2, y_km=9.5),
+            Node(id="ПВЗ-F", x_km=3, y_km=5.6),
+            Node(id="ПВЗ-G", x_km=5.8, y_km=8.7),
+            Node(id="ПВЗ-X", x_km=10.25, y_km=8.4),
+        ],
+        routes=[VanRoute(id="G2", depot_id="HUB", stops=[
+            Stop(node_id="ПВЗ-D", eta_min=41, service_min=12),
+            Stop(node_id="ПВЗ-F", eta_min=62, service_min=12),
+            Stop(node_id="ПВЗ-G", eta_min=83, service_min=12),
+        ])],
+        skus=[Sku(id="SKU-002"), Sku(id="SKU-003")],
+        stock=[StockItem(node_id=source, sku_id="SKU-003", qty=available)],
+        orders=[Order(id="return", sku_id="SKU-003", qty=qty, pvz_id="ПВЗ-D")],
+    )
+
+
+@pytest.mark.parametrize(("source", "depart"), [("ПВЗ-F", 62), ("ПВЗ-G", 83)])
+def test_profitable_return_visit_uses_direct_leg(source, depart):
+    c = return_city(source, qty=3, available=3)
+    original = c.model_dump()
+    plan, _ = nightly_plan(c)
+
+    assert [s.node_id for s in plan.routes[0].stops] == ["ПВЗ-D", "ПВЗ-F", "ПВЗ-G", "ПВЗ-D"]
+    (stop,) = plan.inserted_stops
+    assert (stop.route_id, stop.position, stop.added_min, stop.cost_kop) == ("G2", 3, 4, 6348)
+    assert plan.routes[0].stops[stop.position].added
+    (assignment,) = plan.assignments
+    assert (assignment.variant, assignment.source_node, assignment.qty) == (Variant.VAN, source, 3)
+    (leg,) = assignment.legs
+    assert (leg.route_id, leg.from_node, leg.to_node) == ("G2", source, "ПВЗ-D")
+    assert (leg.depart_min, leg.arrive_min) == (depart, 105)
+    assert (plan.total_money_kop, plan.hub_money_kop) == (15948, 18120)
+    assert c.model_dump() == original
+
+
+@pytest.mark.parametrize("qty", [1, 2])
+def test_return_visit_requires_savings_in_money(qty):
+    plan, _ = nightly_plan(return_city("ПВЗ-G", qty=qty, available=qty))
+
+    assert plan.inserted_stops == []
+    (assignment,) = plan.assignments
+    assert (assignment.variant, assignment.source_node, assignment.qty) == (Variant.HUB, "HUB", qty)
+    assert assignment.legs == []
+    assert plan.total_money_kop == plan.hub_money_kop == qty * 6040
+
+
+def test_return_visit_respects_route_limits():
+    limited_time = return_city("ПВЗ-G", qty=3, available=3)
+    limited_time.params.max_added_min_abs = 3
+    limited_capacity = return_city("ПВЗ-G", qty=3, available=3)
+    limited_capacity.routes[0].capacity = 2
+
+    for c in (limited_time, limited_capacity):
+        plan, _ = nightly_plan(c)
+        assert plan.inserted_stops == []
+        assert [(a.variant, a.qty) for a in plan.assignments] == [(Variant.HUB, 3)]
+
+
+def test_return_visit_position_tracks_later_insertions():
+    c = return_city("ПВЗ-G", qty=3, available=3)
+    x = next(n for n in c.nodes if n.id == "ПВЗ-X")
+    x.x_km, x.y_km = 3, 5.6  # рядом с F, по пути из D
+    c.stock.append(StockItem(node_id="ПВЗ-D", sku_id="SKU-002", qty=1))
+    c.orders.append(Order(id="new-stop", sku_id="SKU-002", pvz_id="ПВЗ-X"))
+
+    plan, _ = nightly_plan(c)
+
+    assert [(s.node_id, s.position) for s in plan.inserted_stops] == [("ПВЗ-D", 4), ("ПВЗ-X", 1)]
+    for inserted in plan.inserted_stops:
+        visit = plan.routes[0].stops[inserted.position]
+        assert visit.added and visit.node_id == inserted.node_id
+    (leg,) = by_order(plan)["return"].legs
+    assert leg.arrive_min == 107
+
+
+def test_return_visit_hub_fills_shortage_directly_for_all_orders():
+    c = return_city("ПВЗ-G", qty=5, available=3)
+    c.orders.append(Order(id="hub-only", sku_id="SKU-002", qty=2, pvz_id="ПВЗ-X"))
+    response = TestClient(app).post(
+        "/routing/plan", headers={"X-Role": "logist"}, json=c.model_dump()
+    )
+    assert response.status_code == 200
+    plan = response.json()
+
+    assert len(plan["inserted_stops"]) == 1
+    assert [(a["order_id"], a["source_node"], a["qty"]) for a in plan["assignments"]] == [
+        ("return", "ПВЗ-G", 3),
+        ("return", "HUB", 2),
+        ("hub-only", "HUB", 2),
+    ]
+    for a in plan["assignments"]:
+        if a["variant"] == "hub":
+            assert a["legs"] == []
+        else:
+            assert [(leg["from_node"], leg["to_node"]) for leg in a["legs"]] == [("ПВЗ-G", "ПВЗ-D")]
+    assert plan["total_money_kop"] == 15948 + 4 * 6040
 
 
 def test_rebalance_to_forecast_deficit():
@@ -210,6 +315,100 @@ def test_api_demo():
     ).json()
     assert any(c["chosen"] for c in d["candidates"])
     assert client.get("/routing/demo").status_code == 401
+
+
+def test_demo_unique_goods_share_return_visit_without_local_fulfillment():
+    client = TestClient(app)
+    headers = {"X-Role": "logist"}
+    response = client.post("/routing/demo/reset", headers=headers)
+    assert response.status_code == 200
+    response = client.get("/routing/demo", headers=headers)
+    assert response.status_code == 200
+    c = City.model_validate(response.json()["city"])
+    assert [(s.sku_id, s.node_id, s.qty) for s in c.stock if s.sku_id.startswith("UNIQUE-")] == [
+        (f"UNIQUE-{node.id}", node.id, 3) for node in c.nodes if node.kind == NodeKind.PVZ
+    ]
+    c.orders = [
+        Order(id="g-to-d", sku_id="UNIQUE-ПВЗ-G", qty=3, pvz_id="ПВЗ-D"),
+        Order(id="f-to-d", sku_id="UNIQUE-ПВЗ-F", qty=1, pvz_id="ПВЗ-D"),
+    ]
+    response = client.post("/routing/plan", headers=headers, json=c.model_dump())
+    assert response.status_code == 200
+    plan = response.json()
+    (return_stop,) = plan["inserted_stops"]
+    assert (return_stop["route_id"], return_stop["node_id"], return_stop["position"]) == (
+        "G2", "ПВЗ-D", 3
+    )
+    assert [(a["source_node"], a["variant"], a["qty"]) for a in plan["assignments"]] == [
+        ("ПВЗ-G", "van", 3), ("ПВЗ-F", "van", 1),
+    ]
+    assert all(a["legs"][0]["arrive_min"] == 105 for a in plan["assignments"])
+
+
+def test_unique_goods_use_cheaper_hub_relay_and_show_real_shortage():
+    c = return_city("ПВЗ-G", qty=1, available=1)
+    sku = "UNIQUE-ПВЗ-G"
+    c.skus.append(Sku(id=sku))
+    c.orders[0].sku_id = c.stock[0].sku_id = sku
+    c.stock.append(StockItem(node_id="HUB", sku_id=sku, qty=10))
+    c.orders.append(Order(id="ordinary", sku_id="SKU-002", qty=1, pvz_id="ПВЗ-X"))
+
+    plan, _ = nightly_plan(c)
+    delivered = by_order(plan)["return"]
+    assert (delivered.variant, delivered.source_node, delivered.qty) == (Variant.HUB, "ПВЗ-G", 1)
+    assert [(leg.from_node, leg.to_node) for leg in delivered.legs] == [
+        ("ПВЗ-G", "HUB"), ("HUB", "ПВЗ-D"),
+    ]
+    assert (delivered.legs[-1].depart_min, delivered.legs[-1].arrive_min) == (1440, 1481)
+    assert delivered.hours == 34.68
+    assert plan.inserted_stops == []
+    assert (plan.total_money_kop, plan.hub_money_kop) == (6750 + 6040, 6040)
+    assert plan.unassigned == {}
+
+    c.orders[0].qty = 3
+    plan, evaluation = nightly_plan(c)
+    assert plan.unassigned == {"return": 2}
+    assert {(a.order_id, a.source_node, a.qty) for a in plan.assignments} == {
+        ("ordinary", "HUB", 1), ("return", "ПВЗ-G", 1),
+    }
+    assert evaluation.stock_after[("ПВЗ-G", sku)] == 0
+    hub, greedy, nightly = compare(c)
+    assert [s.hub_units for s in (hub, greedy, nightly)] == [1, 1, 2]
+    assert [s.unassigned_units for s in (hub, greedy, nightly)] == [3, 3, 2]
+
+
+def test_hub_relay_shares_next_day_departure_capacity_across_skus():
+    c = return_city("ПВЗ-G", qty=1, available=1)
+    a, b = "UNIQUE-ПВЗ-G", "UNIQUE-ПВЗ-F"
+    c.skus.extend([Sku(id=a), Sku(id=b)])
+    c.orders[0].sku_id = c.stock[0].sku_id = a
+    c.stock.append(StockItem(node_id="ПВЗ-F", sku_id=b, qty=1))
+    c.orders.append(Order(id="second", sku_id=b, qty=1, pvz_id="ПВЗ-D"))
+    c.routes[0].capacity = 3
+    c.routes[0].stops[0].base_drop = 2
+    c.params.max_new_stops = 0
+
+    plan, ev = nightly_plan(c)
+    (shipment,) = plan.assignments
+    assert (shipment.variant, shipment.source_node, shipment.qty) == (Variant.HUB, "ПВЗ-F", 1)
+    assert plan.unassigned == {"return": 1}
+    assert ev.cap.seg_free["G2", 2] == 2
+    assert ev.cap.next_seg_free["G2", -1] == 0
+    assert ev.stock_after["ПВЗ-G", a] == 1
+
+
+def test_unique_goods_without_route_stay_on_the_source_shelf():
+    c = return_city("ПВЗ-G", qty=1, available=1)
+    sku = "UNIQUE-ПВЗ-G"
+    c.skus.append(Sku(id=sku))
+    c.orders[0].sku_id = c.stock[0].sku_id = sku
+    c.routes = []
+
+    plan, evaluation = nightly_plan(c)
+    assert plan.assignments == []
+    assert plan.unassigned == {"return": 1}
+    assert plan.total_money_kop == plan.hub_money_kop == 0
+    assert evaluation.stock_after[("ПВЗ-G", sku)] == 1
 
 
 # ---------------------------------------------------------------- исправленные ошибки

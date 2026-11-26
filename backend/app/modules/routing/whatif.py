@@ -9,7 +9,14 @@ from copy import deepcopy
 import networkx as nx
 from pydantic import BaseModel, Field
 
-from app.modules.routing.daily import DayState, Decision, _van_candidate, _van_graph, choose
+from app.modules.routing.daily import (
+    DayState,
+    Decision,
+    _van_candidate,
+    _van_graph,
+    choose,
+    hub_candidate,
+)
 from app.modules.routing.models import Candidate, Leg, Order, Variant
 from app.modules.routing.network import legs_of
 
@@ -44,9 +51,10 @@ class WhatIfResult(BaseModel):
 
 
 def _quote(
-    candidate: Candidate, order: Order, hub_kop: int, legs: list[Leg] | None = None
+    candidate: Candidate, order: Order, hub_kop: int | None, legs: list[Leg] | None = None
 ) -> WhatIfQuote:
     money = candidate.money_kop
+    saving = (hub_kop - money) * order.qty if money is not None and hub_kop is not None else None
     return WhatIfQuote(
         variant=candidate.variant,
         source_node=candidate.source_node,
@@ -54,7 +62,7 @@ def _quote(
         money_kop=money,
         total_money_kop=money * order.qty if money is not None else None,
         hours=candidate.hours,
-        saving_kop=(hub_kop - money) * order.qty if money is not None else None,
+        saving_kop=saving,
         legs=legs or [],
     )
 
@@ -79,15 +87,18 @@ def _van_rejection(state: DayState, source: str, dest: str, default: str) -> str
 
 def _forced(state: DayState, source: str, order: Order, hub: Candidate) -> WhatIfQuote:
     p = state.params
+    fallback = hub if hub.money_kop is not None else Candidate(
+        variant=Variant.VAN, source_node=source, reason=hub.reason
+    )
     if not state.nodes[order.pvz_id].is_open:
-        closed = hub.model_copy(
+        closed = fallback.model_copy(
             update={
                 "money_kop": None,
                 "hours": None,
                 "reason": f"{order.pvz_id} закрыт — заказ нельзя принять",
             }
         )
-        return _quote(closed, order, p.hub_kop)
+        return _quote(closed, order, hub.money_kop)
 
     if not state.nodes[source].is_open:
         reason = f"{source} закрыт"
@@ -101,30 +112,23 @@ def _forced(state: DayState, source: str, order: Order, hub: Candidate) -> WhatI
             hours=p.own_hours,
             reason="товар уже в ПВЗ покупателя",
         )
-        return _quote(own, order, p.hub_kop)
+        return _quote(own, order, hub.money_kop)
     else:
         graph = _van_graph(state, order.qty)
         van = _van_candidate(state, graph, source, order)
         if van.money_kop is not None:
             path = nx.dijkstra_path(graph, ("out", source), ("in", order.pvz_id))
-            return _quote(van, order, p.hub_kop, legs_of(path, {r.id: r for r in state.routes}))
+            return _quote(van, order, hub.money_kop, legs_of(path, {r.id: r for r in state.routes}))
         reason = _van_rejection(state, source, order.pvz_id, van.reason)
 
-    return _quote(hub.model_copy(update={"reason": reason}), order, p.hub_kop)
+    return _quote(fallback.model_copy(update={"reason": reason}), order, hub.money_kop)
 
 
 def what_if(state: DayState, request: WhatIfRequest) -> WhatIfResult:
     """Применяет ограничение источника и обычный выбор к одному снимку данных."""
     snapshot = deepcopy(state)
-    p = snapshot.params
     order = Order(id="what-if", sku_id=request.sku_id, qty=request.qty, pvz_id=request.dest_pvz)
-    hub = Candidate(
-        variant=Variant.HUB,
-        source_node="HUB",
-        money_kop=p.hub_kop,
-        hours=p.hub_hours,
-        reason="базовая схема: хаб + магистраль",
-    )
+    hub = hub_candidate(snapshot.params, order.sku_id)
     forced = _forced(snapshot, request.source_pvz, order, hub)
     decision = choose(snapshot, order)
     chosen = decision.assignment
@@ -133,6 +137,7 @@ def what_if(state: DayState, request: WhatIfRequest) -> WhatIfResult:
         candidates=decision.candidates,
         assignment=chosen,
         total_money_kop=chosen.money_kop * order.qty if chosen else None,
-        saving_kop=(p.hub_kop - chosen.money_kop) * order.qty if chosen else None,
+        saving_kop=(hub.money_kop - chosen.money_kop) * order.qty
+        if chosen and hub.money_kop is not None else None,
     )
-    return WhatIfResult(forced=forced, best=best, hub=_quote(hub, order, p.hub_kop))
+    return WhatIfResult(forced=forced, best=best, hub=_quote(hub, order, hub.money_kop))
