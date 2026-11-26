@@ -3,19 +3,10 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# Модели всех модулей — одним импортом, чтобы autogenerate видел все таблицы.
+import app.modules.all_models  # noqa: E402, F401
 from app.core.config import get_settings
 from app.core.db import Base
-
-# Модели всех модулей уже импортированы — autogenerate видит их таблицы.
-from app.modules.analytics import models as _analytics  # noqa: E402, F401
-from app.modules.economics import models as _economics  # noqa: E402, F401
-from app.modules.inventory import models as _inventory  # noqa: E402, F401
-from app.modules.ledger import models as _ledger  # noqa: E402, F401
-from app.modules.network import models as _network  # noqa: E402, F401
-from app.modules.ops import models as _ops  # noqa: E402, F401
-from app.modules.orders import models as _orders  # noqa: E402, F401
-from app.modules.scenarios import models as _scenarios  # noqa: E402, F401
-from app.modules.stubs import models as _stubs  # noqa: E402, F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
