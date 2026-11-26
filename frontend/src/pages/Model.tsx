@@ -102,11 +102,13 @@ export default function Model() {
               {money(unit.effect_kop)}
             </strong>
             <em>{unit.effect_kop >= 0 ? "▲ mesh выгоден" : "▼ выгоднее хаб"}</em>
+            <span className="model-formula">Эффект = C_хаб − C_mesh</span>
           </div>
           <div className="model-tile">
             <span>Вероятность продать в городе</span>
             <strong>{percent(unit.sale_probability)}</strong>
             <em>в среднем {plain(unit.expected_days, 1)} сут на полке</em>
+            <span className="model-formula">p = 1 − e<sup>−λ × D</sup></span>
           </div>
           <div className="model-tile">
             <span>Срок для покупателя</span>

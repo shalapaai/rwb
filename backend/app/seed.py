@@ -14,12 +14,15 @@ from sqlalchemy.orm import Session
 from app.core.db import Base, SessionLocal
 from app.modules import all_models  # noqa: F401
 from app.modules.inventory.models import Product, Seller, Unit
+from app.modules.inventory.service import sim_now
 from app.modules.network.models import Node, VanRoute, VanStop
+from app.modules.ops.models import SimClock
 from app.modules.routing.demo import demo_city
-from app.modules.routing.models import NodeKind
+from app.modules.routing.models import NodeKind, Sku
 
 SELLER_ID = "S-01"
 MESH_SHARE_PCT = 25
+DEMO_BOXES = tuple(Sku(id=f"SKU-BOX-{litres}L", volume_l=litres) for litres in (3, 5, 8, 10, 50))
 
 
 def _insert_missing(
@@ -40,7 +43,8 @@ def seed(session: Session) -> None:
     for (node_id, sku_id), qty in quantities.items():
         used_l[node_id] += skus[sku_id].volume_l * qty
 
-    now = datetime.now(UTC)
+    _insert_missing(session, SimClock, ("id",), [{"id": 1, "base_at": datetime.now(UTC)}])
+    now = sim_now(session)
     nodes = []
     for node in city.nodes:
         # Демо задаёт свободный объём. Добавляем объём отказов, чтобы его сохранить.
@@ -93,12 +97,12 @@ def seed(session: Session) -> None:
         [
             {
                 "sku": sku.id,
-                "name": sku.id,
+                "name": "Коробка для хранения" if sku in DEMO_BOXES else sku.id,
                 "volume_l": sku.volume_l,
                 "price_kop": sku.price_kop,
                 "seller_id": SELLER_ID,
             }
-            for sku in city.skus
+            for sku in (*city.skus, *DEMO_BOXES)
         ],
     )
 

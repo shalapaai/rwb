@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/sim/clock/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Next Day
+         * @description Перейти с показанной оператору даты на следующий день для всех ПВЗ.
+         */
+        post: operations["next_day_sim_clock_next_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -130,6 +150,46 @@ export interface paths {
          * @description ПВЗ сам выбирает долю склада под mesh: 10–50%.
          */
         patch: operations["update_settings_pvz__pvz_id__settings_patch"];
+        trace?: never;
+    };
+    "/pvz/{pvz_id}/units/{unit_id}/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Shelf Action
+         * @description Подтвердить снятие для возврата или размещение первого ожидающего товара.
+         */
+        post: operations["shelf_action_pvz__pvz_id__units__unit_id___action__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pvz/{pvz_id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tasks
+         * @description Что ПВЗ должен сделать: отобрать, отдать в газель, принять, выдать.
+         */
+        get: operations["tasks_pvz__pvz_id__tasks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/pvz/{pvz_id}/stock": {
@@ -777,6 +837,15 @@ export interface components {
             /** Objective Kop */
             objective_kop: number;
         };
+        /** ProductOption */
+        ProductOption: {
+            /** Sku */
+            sku: string;
+            /** Name */
+            name: string;
+            /** Volume L */
+            volume_l: number;
+        };
         /** RefusalIn */
         RefusalIn: {
             /** Sku Id */
@@ -806,7 +875,7 @@ export interface components {
              * Placement
              * @enum {string}
              */
-            placement: "shelf" | "hub";
+            placement: "shelf" | "queue" | "return_queue" | "hub";
             /**
              * Decision
              * @enum {string}
@@ -872,6 +941,12 @@ export interface components {
         };
         /** SettingsOut */
         SettingsOut: {
+            /** Estimated Days */
+            estimated_days?: number | null;
+            /** Pending Share Pct */
+            pending_share_pct?: number | null;
+            /** Reason */
+            reason?: string | null;
             /** Pvz Id */
             pvz_id: string;
             /** Mesh Share Pct */
@@ -907,8 +982,121 @@ export interface components {
             /** Qty */
             qty: number;
         };
+        /** ShelfActionOut */
+        ShelfActionOut: {
+            /** Unit Id */
+            unit_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "to_hub" | "on_shelf" | "remove_pending";
+        };
+        /** ReductionSummary */
+        ReductionSummary: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Sent L */
+            sent_l: number;
+            /** Limit L */
+            limit_l: number;
+            /** Target L */
+            target_l: number;
+        };
+        /** ShelfTask */
+        ShelfTask: {
+            /** Scheduled For */
+            scheduled_for?: string | null;
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Unit Id */
+            unit_id: number;
+            /** Version */
+            version: number;
+            /** Sku */
+            sku: string;
+            /** Barcode */
+            barcode: string;
+            /** Volume L */
+            volume_l: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "remove" | "return" | "shelve" | "reduce";
+        };
+        /** TaskRow */
+        TaskRow: {
+            /** Order Id */
+            order_id: number;
+            /** Version */
+            version: number;
+            /** Sku */
+            sku: string;
+            /** Qty */
+            qty: number;
+            /** Status */
+            status: string;
+            /** Variant */
+            variant: string | null;
+            /** Source Node */
+            source_node: string | null;
+            /** Pvz Id */
+            pvz_id: string;
+            /** Van */
+            van: string | null;
+            /** Van Eta Min */
+            van_eta_min: number | null;
+        };
+        /** TasksOut */
+        TasksOut: {
+            reduction?: components["schemas"]["ReductionSummary"] | null;
+            /** Pvz Id */
+            pvz_id: string;
+            /** Shelf */
+            shelf: components["schemas"]["ShelfTask"][];
+            /** To Pick */
+            to_pick: components["schemas"]["TaskRow"][];
+            /** To Load */
+            to_load: components["schemas"]["TaskRow"][];
+            /** To Receive */
+            to_receive: components["schemas"]["TaskRow"][];
+            /** To Issue */
+            to_issue: components["schemas"]["TaskRow"][];
+        };
+        /** VersionIn */
+        VersionIn: {
+            /** Version */
+            version: number;
+        };
+        /** NextDayIn */
+        NextDayIn: {
+            /**
+             * Expected Day
+             * Format: date
+             */
+            expected_day: string;
+        };
         /** StockOut */
         StockOut: {
+            /** Writeoffs Today */
+            writeoffs_today: components["schemas"]["WriteOffOut"][];
+            /**
+             * Simulation Day
+             * Format: date
+             */
+            simulation_day: string;
+            /** Estimated Days */
+            estimated_days?: number | null;
+            /** Products */
+            products: components["schemas"]["ProductOption"][];
+            /** Pending Share Reason */
+            pending_share_reason?: string | null;
+            /** Pending Share Pct */
+            pending_share_pct?: number | null;
             /** Pvz Id */
             pvz_id: string;
             /** Mesh Share Pct */
@@ -919,6 +1107,26 @@ export interface components {
             limit_l: number;
             /** Units */
             units: components["schemas"]["StockUnit"][];
+        };
+        /** WriteOffOut */
+        WriteOffOut: {
+            /** Sku */
+            sku: string;
+            /** Name */
+            name: string;
+            /** Volume L */
+            volume_l: number;
+            /** Unit Id */
+            unit_id: number;
+            /** Barcode */
+            barcode: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "packaging" | "volume";
+            /** Reason */
+            reason: string;
         };
         /** StockUnit */
         StockUnit: {
@@ -1081,6 +1289,44 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    next_day_sim_clock_next_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "x-role"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NextDayIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_health_get: {
         parameters: {
             query?: never;
@@ -1289,6 +1535,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shelf_action_pvz__pvz_id__units__unit_id___action__post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "x-role"?: string | null;
+            };
+            path: {
+                pvz_id: string;
+                unit_id: number;
+                action: "remove" | "return" | "shelve" | "reduce";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShelfActionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tasks_pvz__pvz_id__tasks_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-role"?: string | null;
+            };
+            path: {
+                pvz_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TasksOut"];
                 };
             };
             /** @description Validation Error */

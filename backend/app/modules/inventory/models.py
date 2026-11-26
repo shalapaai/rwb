@@ -7,16 +7,20 @@
 и бросает StaleDataError, если запись успели поменять (инвариант 4).
 """
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
+    Numeric,
     String,
     Text,
     func,
@@ -25,8 +29,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 
-UNIT_STATUSES = ("on_shelf", "reserved", "in_transit", "ready", "issued", "to_hub", "at_hub")
+ON_SHELF = ("on_shelf", "reserved", "remove_pending")  # физически занимают место
+PENDING = ("awaiting_shelf", "awaiting_return")  # приняты, физически ещё вне полки
+UNIT_STATUSES = (*ON_SHELF, *PENDING, "in_transit", "ready", "issued", "to_hub", "at_hub")
 GRADES = ("A", "B", "C")
+MAX_MESH_UNIT_L = 10
 RETURN_KINDS = ("refusal", "return")  # отказ при получении / возврат после покупки
 RETURN_DECISIONS = ("shelf", "repack", "hub")
 
@@ -73,10 +80,39 @@ class Unit(Base):
     grade: Mapped[str | None] = mapped_column(String(1))  # оценка сотрудника при отказе
     # когда легла на полку: очередь FIFO и срок 14 дней
     shelved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reduction_on: Mapped[date | None] = mapped_column(Date)  # дата назначения возврата
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __mapper_args__ = {"version_id_col": version}
+
+
+class ReductionDispatch(Base):
+    """Подтверждённая отправка в хаб при снижении доли. Объём фиксируется на дату отправки."""
+
+    __tablename__ = "reduction_dispatches"
+    __table_args__ = (Index("ix_reduction_pvz_day", "pvz_id", "day"),)
+
+    unit_id: Mapped[int] = mapped_column(ForeignKey("units.id"), primary_key=True)
+    pvz_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"))
+    day: Mapped[date] = mapped_column(Date)
+    volume_l: Mapped[Decimal] = mapped_column(Numeric)
+
+
+class ShelfWriteOff(Base):
+    """Отправка в хаб из-за состояния упаковки или объёма в день стенда."""
+
+    __tablename__ = "shelf_writeoffs"
+    __table_args__ = (
+        CheckConstraint("category IN ('packaging', 'volume')", name="category_valid"),
+        Index("ix_shelf_writeoffs_pvz_day", "pvz_id", "day"),
+    )
+
+    unit_id: Mapped[int] = mapped_column(ForeignKey("units.id"), primary_key=True)
+    pvz_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"))
+    day: Mapped[date] = mapped_column(Date)
+    category: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(Text)
 
 
 class Return(Base):

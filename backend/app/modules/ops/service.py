@@ -13,7 +13,7 @@
 """
 
 import math
-from decimal import Decimal
+from datetime import date, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -23,10 +23,16 @@ from app.core.idempotency import run_once
 from app.modules.economics.params import DEFAULTS as P
 from app.modules.economics.params import kopecks
 from app.modules.inventory.models import Product, Unit
-from app.modules.inventory.service import sim_now
+from app.modules.inventory.service import lock_sim_clock, post_storage, sim_now
+from app.modules.inventory.shelf_queue import (
+    PVZ_TIMEZONE,
+    advance_mornings,
+    plan_removals,
+    waiting_head,
+)
 from app.modules.ledger.service import post
 from app.modules.network.models import Node
-from app.modules.ops.models import IdempotencyKey, Incident, Notification, SimClock
+from app.modules.ops.models import IdempotencyKey, Incident, Notification
 from app.modules.orders.models import Order
 from app.modules.orders.service import _chosen, _move, load_day_state
 from app.modules.routing import daily
@@ -136,30 +142,10 @@ def close_pvz(session: Session, node_id: str, buyer_accepts_alt: bool, now_min: 
 # ---------------------------------------------------------------- сценарий 5
 
 
-def _storage(session: Session, unit: Unit, product: Product, days: int, k: str) -> int:
-    """Хранение за сутки на полке: выплата МП → ПВЗ и реальные затраты ПВЗ."""
-    litre_days = Decimal(str(product.volume_l)) * days
-    rate = P.space_kop_l_day + P.shelf_labour_kop_l_day + P.shelf_profit_kop_l_day
-    fee = kopecks(rate * litre_days)
-    rent = kopecks(P.space_kop_l_day * litre_days)
-    work = kopecks(P.shelf_labour_kop_l_day * litre_days)
-    pvz = f"pvz:{unit.node_id}"
-    post(session, "mesh", "tariff", None, [("mp", -fee), (pvz, fee)], key=f"{k}:storage")
-    post(
-        session,
-        "mesh",
-        "cost",
-        None,
-        [(pvz, -(rent + work)), ("ext:rent", rent), ("ext:labour", work)],
-        key=f"{k}:storage_cost",
-    )
-    return fee
-
-
 def _decide(session: Session, unit: Unit, days: int, k: str, state_box: list) -> dict:
     product = session.get(Product, unit.sku)
     source = unit.node_id
-    storage = _storage(session, unit, product, days, k)
+    storage = post_storage(session, source, product.volume_l, days, k)
 
     # спрос = заказы этого товара в других ПВЗ; больше заказов — первым кандидатом
     demand = session.execute(
@@ -246,20 +232,36 @@ def _first_time(session: Session, key: str, action) -> dict | None:
     return run_once(session, "aging", key, action)
 
 
-def shift_clock(session: Session, days: int) -> dict:
-    clock = session.get(SimClock, 1)
-    if clock is None:
-        clock = SimClock(id=1, offset_days=0)
-        session.add(clock)
+def shift_clock(session: Session, days: int, expected_day: date | None = None) -> dict:
+    clock = lock_sim_clock(session)
+    before = sim_now(session)
+    if expected_day is not None and before.astimezone(PVZ_TIMEZONE).date() != expected_day:
+        raise HTTPException(409, "День стенда уже изменился. Обновляем полку и задания.")
     clock.offset_days += days
     session.flush()
-    now = sim_now(session)
+    now = before + timedelta(days=days)
 
+    advance_mornings(session, now.astimezone(PVZ_TIMEZONE).date())
     notified, decided = [], []
     state_box: list = []  # дневное состояние строим один раз и только если есть спрос
+    # Перевозка может изменить как исходную полку, так и полку назначения.
+    # Берём блокировки до выбора единиц в одном порядке с приёмом и снятием.
+    aged = (
+        select(Unit.id)
+        .where(
+            Unit.status == "on_shelf",
+            Unit.reduction_on.is_(None),
+            Unit.shelved_at <= now - timedelta(days=DECIDE_DAY),
+        )
+        .limit(1)
+    )
+    if session.scalar(aged) is not None:
+        session.execute(
+            select(Node.id).where(Node.kind == "pvz").order_by(Node.id).with_for_update()
+        ).all()
     units = session.scalars(
         select(Unit)
-        .where(Unit.status == "on_shelf", Unit.shelved_at.is_not(None))
+        .where(Unit.status == "on_shelf", Unit.reduction_on.is_(None), Unit.shelved_at.is_not(None))
         .order_by(Unit.shelved_at, Unit.id)
     ).all()
     for u in units:
@@ -288,6 +290,11 @@ def shift_clock(session: Session, days: int) -> dict:
             if done is not None:
                 decided.append(done)
     session.flush()
+    affected = {d["from"] for d in decided} | {d["to"] for d in decided if d["action"] == "move"}
+    for pvz_id in affected:
+        node = session.get(Node, pvz_id)
+        if node.pending_share_pct or waiting_head(session, pvz_id):
+            plan_removals(session, node)
     return {
         "offset_days": clock.offset_days,
         "now": now.isoformat(),

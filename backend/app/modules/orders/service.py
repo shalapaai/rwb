@@ -12,7 +12,6 @@
 """
 
 import math
-from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -23,7 +22,12 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.modules.economics.params import DEFAULTS as P
 from app.modules.economics.params import kopecks, routing_params
 from app.modules.inventory.models import Product, Return, Unit
-from app.modules.inventory.service import sim_now, used_l
+from app.modules.inventory.service import post_storage, sim_now, used_l
+from app.modules.inventory.shelf_queue import (
+    plan_removals,
+    reduction_plan,
+    shelf_tasks,
+)
 from app.modules.ledger.models import LedgerEntry, LedgerTxn
 from app.modules.ledger.service import post
 from app.modules.network.models import Node, VanRoute, VanStop
@@ -212,6 +216,8 @@ def create_order(
 
 
 def _reserve(session: Session, order: Order, node_id: str, qty: int) -> None:
+    # Тот же порядок блокировок, что у отправки: сперва ПВЗ, затем физическая единица.
+    session.execute(select(Node.id).where(Node.id == node_id).with_for_update(key_share=True))
     units = session.scalars(
         select(Unit)
         .where(Unit.node_id == node_id, Unit.sku == order.sku, Unit.status == "on_shelf")
@@ -304,6 +310,9 @@ def _labour(minutes) -> int:
 def act(session: Session, order_id: int, action: str, version: int) -> Order:
     order = _load(session, order_id, version)
     k = f"order:{order.id}:{action}"
+    shelf = None
+    if order.source_node and action in ("pick", "load", "cancel"):
+        shelf = session.scalar(select(Node).where(Node.id == order.source_node).with_for_update())
     units = _units(session, order)
     if action == "pick":
         if order.variant not in ("own", "neighbor", "van"):
@@ -331,12 +340,14 @@ def act(session: Session, order_id: int, action: str, version: int) -> Order:
         )
         if order.variant != "van":
             for u in units:
+                u.reduction_on = None
                 u.status = "ready"
     elif action == "load":
         if order.variant != "van":
             raise _conflict("Грузить в газель можно только заказ с вариантом «газель»")
         _move(order, "in_transit")
         for u in units:
+            u.reduction_on = None
             u.status, u.node_id = "in_transit", None
         space = P.van_space_kop * order.qty  # место в попутной газели
         post(
@@ -393,6 +404,8 @@ def act(session: Session, order_id: int, action: str, version: int) -> Order:
         session.flush()
     except StaleDataError as exc:
         raise _conflict("Заказ или единицу одновременно изменили — обновите") from exc
+    if shelf:
+        plan_removals(session, shelf)
     return order
 
 
@@ -407,18 +420,7 @@ def _post_storage(session: Session, order: Order, units: list[Unit], k: str) -> 
     )
     if not days:
         return
-    litre_days = Decimal(str(product.volume_l)) * days
-    rate = P.space_kop_l_day + P.shelf_labour_kop_l_day + P.shelf_profit_kop_l_day
-    fee = kopecks(rate * litre_days)
-    rent = kopecks(P.space_kop_l_day * litre_days)
-    work = kopecks(P.shelf_labour_kop_l_day * litre_days)
-    src = f"pvz:{order.source_node}"
-    post(session, "mesh", "tariff", order.id, [("mp", -fee), (src, fee)], key=f"{k}:storage")
-    if rent + work:
-        legs = [(src, -(rent + work))] + [
-            (a, v) for a, v in (("ext:rent", rent), ("ext:labour", work)) if v
-        ]
-        post(session, "mesh", "cost", order.id, legs, key=f"{k}:storage_cost")
+    post_storage(session, order.source_node, product.volume_l, days, k, order.id)
 
 
 def _reverse(
@@ -484,7 +486,8 @@ def return_order(session: Session, order_id: int, version: int, grade: str) -> O
 
 
 def tasks(session: Session, pvz_id: str) -> dict:
-    if session.get(Node, pvz_id) is None:
+    node = session.get(Node, pvz_id)
+    if node is None:
         raise HTTPException(404, f"Нет ПВЗ {pvz_id}")
     orders = session.scalars(
         select(Order).where(
@@ -507,8 +510,13 @@ def tasks(session: Session, pvz_id: str) -> dict:
             "van_eta_min": legs[0]["depart_min"] if legs else None,
         }
 
+    shelf = shelf_tasks(session, node)
+    reduction, planned = reduction_plan(session, node, sim_now(session))
+    shelf.extend(planned)
     return {
         "pvz_id": pvz_id,
+        "shelf": shelf,
+        "reduction": reduction,
         "to_pick": [row(o) for o in orders if o.status == "reserved" and o.source_node == pvz_id],
         "to_load": [row(o) for o in orders if o.status == "picked" and o.source_node == pvz_id],
         "to_receive": [

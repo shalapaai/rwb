@@ -17,8 +17,9 @@ from app.core.db import Base, get_session
 from app.main import app
 from app.modules.inventory.models import Product, Seller, Unit
 from app.modules.network.models import Node, VanRoute, VanStop
+from app.modules.ops.models import SimClock
 from app.modules.routing.demo import demo_city
-from app.seed import seed
+from app.seed import DEMO_BOXES, seed
 
 
 @pytest.fixture
@@ -26,7 +27,8 @@ def sessions() -> Iterator[sessionmaker[Session]]:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
-    tables = [model.__table__ for model in (Node, VanRoute, VanStop, Seller, Product, Unit)]
+    models = (Node, VanRoute, VanStop, Seller, Product, Unit, SimClock)
+    tables = [model.__table__ for model in models]
     try:
         with engine.begin() as connection:
             connection.exec_driver_sql("PRAGMA foreign_keys = ON")
@@ -43,7 +45,7 @@ def test_seed_twice_keeps_counts_and_existing_units(sessions: sessionmaker[Sessi
         VanRoute: len(city.routes),
         VanStop: sum(len(route.stops) for route in city.routes),
         Seller: 1,
-        Product: len(city.skus),
+        Product: len(city.skus) + len(DEMO_BOXES),
         Unit: sum(item.qty for item in city.stock),
     }
     unit_snapshot = select(
@@ -58,7 +60,7 @@ def test_seed_twice_keeps_counts_and_existing_units(sessions: sessionmaker[Sessi
         assert session.scalar(select(Seller.id)) == "S-01"
         products = session.execute(select(Product.sku, Product.price_kop, Product.seller_id))
         assert {tuple(product) for product in products} == {
-            (sku.id, sku.price_kop, "S-01") for sku in city.skus
+            (sku.id, sku.price_kop, "S-01") for sku in (*city.skus, *DEMO_BOXES)
         }
         for route_date in session.scalars(select(VanRoute.route_date)):
             assert before.date() <= route_date <= after.date()

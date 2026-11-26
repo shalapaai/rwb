@@ -1,5 +1,6 @@
 """Нештатные ситуации: закрытие ПВЗ, тестовые часы, уведомления."""
 
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -17,6 +18,7 @@ router = APIRouter(prefix="", tags=["ops"])
 
 Logist = Annotated[Role, Depends(require_roles(Role.LOGIST, Role.ADMIN))]
 Admin = Annotated[Role, Depends(require_roles(Role.ADMIN))]
+Operator = Annotated[Role, Depends(require_roles(Role.PVZ_OPERATOR, Role.ADMIN))]
 AnyRole = Annotated[Role, Depends(require_roles(*Role))]
 Db = Annotated[Session, Depends(get_session)]
 
@@ -29,6 +31,10 @@ class IncidentIn(BaseModel):
 
 class ClockIn(BaseModel):
     days: int = Field(ge=1, le=60)
+
+
+class NextDayIn(BaseModel):
+    expected_day: date
 
 
 @router.post("/incidents")
@@ -48,6 +54,14 @@ def incident(body: IncidentIn, key: IdemKey, _: Logist, db: Db) -> dict[str, Any
 def clock(body: ClockIn, key: IdemKey, _: Admin, db: Db) -> dict[str, Any]:
     """Сценарий 5: сдвинуть тестовое время; уведомления на 7-й день, решение на 14-й."""
     result = run_once(db, "sim-clock", key, lambda: service.shift_clock(db, body.days))
+    db.commit()
+    return result
+
+
+@router.post("/sim/clock/next")
+def next_day(body: NextDayIn, key: IdemKey, _: Operator, db: Db) -> dict[str, Any]:
+    """Перейти с показанной оператору даты на следующий день для всех ПВЗ."""
+    result = run_once(db, "sim-next", key, lambda: service.shift_clock(db, 1, body.expected_day))
     db.commit()
     return result
 

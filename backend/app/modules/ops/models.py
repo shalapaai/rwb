@@ -2,7 +2,7 @@
 
 `idempotency_keys` хранит ответ на изменяющий запрос: повтор с тем же ключом
 отдаёт его же и ничего не меняет (инвариант 5, хелпер — app/core/idempotency.py, N4).
-`sim_clock` — одна строка: на сколько дней сдвинуто время (сценарий долгого хранения).
+`sim_clock` хранит начальный момент и число дней, пройденных вручную.
 """
 
 from datetime import datetime
@@ -63,3 +63,4 @@ class SimClock(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     offset_days: Mapped[int] = mapped_column(Integer, default=0)
+    base_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
