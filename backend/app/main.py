@@ -6,6 +6,7 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.modules import all_models  # noqa: F401  — все таблицы в метаданных
 from app.modules.analytics.router import router as analytics_router
+from app.modules.catalog.router import router as catalog_router
 from app.modules.economics.router import router as economics_router
 from app.modules.inventory.router import router as inventory_router
 from app.modules.ledger.router import router as ledger_router
@@ -43,6 +44,7 @@ app.include_router(system.router)
 
 # Предметные роутеры: все модули уже подключены, новые строки сюда добавлять не нужно.
 app.include_router(analytics_router)
+app.include_router(catalog_router)
 app.include_router(economics_router)
 app.include_router(inventory_router)
 app.include_router(ledger_router)
