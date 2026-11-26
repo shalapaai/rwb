@@ -1,20 +1,14 @@
-"""ВРЕМЕННЫЕ ставки продажи — до переноса в economics.params (сказать Анастасии, N8/N9).
-
-Синтетические допущения модели, не тарифы RWB (п. 7.5). Основание — docs/02,
-таблица «Параметры». Проверено по открытым источникам 26.11.2026: комиссия WB
-зависит от предмета и после 07.07.2026 выросла в среднем на ~5 п. п. по FBW;
-логистика — база + доплата за литр (пример WB для 2 л: 46 + 14 ₽);
-фиксированного процента выплат ПВЗ в открытых данных нет.
-Комиссия и выплата за выдачу одинаковы в mesh и в хабе — на сравнение схем не влияют.
+"""Ставки для расчётов при продаже и выдаче заказа.
+Значения берутся из общего каталога economics.params для обеих схем исполнения.
+Процент применяется к сумме продажи с одним округлением до копейки.
 """
 
 from app.modules.economics.params import DEFAULTS as P
 
-COMMISSION_PCT = 20  # комиссия маркетплейса с цены; docs/02 (консервативно ниже рынка 2026)
-ISSUE_FEE_PCT = 3  # выплата ПВЗ за выдачу заказа покупателю; docs/02
-SELLER_LOGISTICS_BASE_KOP = 6000  # логистика для продавца через хаб; docs/02, пример WB 46 + 14 ₽
-# в mesh продавец платит меньше на скидку за местное исполнение из economics.params
-SELLER_LOGISTICS_MESH_KOP = SELLER_LOGISTICS_BASE_KOP - P.seller_saving_kop
+COMMISSION_PCT = P.commission_pct
+ISSUE_FEE_PCT = P.issue_fee_pct
+SELLER_LOGISTICS_BASE_KOP = P.seller_logistics_base_kop
+SELLER_LOGISTICS_MESH_KOP = P.seller_logistics_mesh_kop
 
 
 def pct(price_kop: int, percent: int) -> int:

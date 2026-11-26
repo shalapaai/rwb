@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.modules.ledger.models import SCHEMES, LedgerEntry, LedgerTxn
 
 KINDS = ("sale", "tariff", "cost", "return", "penalty")
-EXTERNAL = ("buyer", "labour", "materials", "rent", "van", "hub_ops", "trunk", "shrink")
+EXTERNAL = ("buyer", "labour", "materials", "rent", "it", "van", "hub_ops", "trunk", "shrink")
 # mp | seller:<id> | pvz:<id> | ext:<внешний мир из EXTERNAL>
 ACCOUNT_RE = re.compile(r"^(mp|seller:[\w-]+|pvz:[\w-]+|ext:(" + "|".join(EXTERNAL) + r"))$")
 

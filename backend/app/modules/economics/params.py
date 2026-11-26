@@ -113,7 +113,7 @@ class ModelParams:
     it_kop: int = assumption(
         100,
         "ИТ на местный заказ",
-        KOPECK,
+        "коп/заказ",
         "Синтетическая оценка ИТ и сканирования из v2.",
         DOC,
     )
@@ -186,6 +186,28 @@ class ModelParams:
         "Выплата ПВЗ за приём из газели",
         KOPECK,
         "Внутренний тариф v2 за приём.",
+        DOC,
+    )
+    commission_pct: int = assumption(
+        20,
+        "Комиссия маркетплейса с суммы продажи",
+        "%",
+        "Сценарная ставка из docs/02, одинаковая для продаж по обеим схемам.",
+        DOC,
+    )
+    issue_fee_pct: int = assumption(
+        3,
+        "Выплата ПВЗ за выдачу в процентах от суммы продажи",
+        "%",
+        "Сценарное вознаграждение за выдачу из docs/02 для обеих схем.",
+        DOC,
+    )
+    seller_logistics_base_kop: int = assumption(
+        6000,
+        "Плата продавца за логистику через хаб",
+        KOPECK,
+        "Базовая ставка продавца за одну единицу из docs/02. "
+        "Себестоимость исполнения через хаб учитывается отдельно в hub_order_kop.",
         DOC,
     )
     seller_saving_kop: int = assumption(
@@ -287,6 +309,10 @@ class ModelParams:
     )
 
     @property
+    def seller_logistics_mesh_kop(self) -> int:
+        return self.seller_logistics_base_kop - self.seller_saving_kop
+
+    @property
     def storage_tariff(self) -> int:
         return self.space_kop_l_day + self.shelf_labour_kop_l_day + self.shelf_profit_kop_l_day
 
@@ -314,6 +340,14 @@ def catalog(params: ModelParams = DEFAULTS) -> list[Parameter]:
         Parameter(id=f.name, value=getattr(params, f.name), **f.metadata) for f in fields(params)
     ]
     return entries + [
+        Parameter(
+            id="seller_logistics_mesh_kop",
+            label="Плата продавца за местное исполнение",
+            value=params.seller_logistics_mesh_kop,
+            unit=KOPECK,
+            basis="Базовая ставка логистики продавца за вычетом скидки за местное исполнение.",
+            source=DOC,
+        ),
         Parameter(
             id="storage_tariff_kop_l_day",
             label="Полный тариф хранения",
