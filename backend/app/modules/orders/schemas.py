@@ -1,7 +1,7 @@
 """Запросы и ответы заказов и заданий ПВЗ."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,10 @@ class OrderIn(BaseModel):
 
 class VersionIn(BaseModel):
     version: int  # версия, которую видел оператор; не совпала — 409
+
+
+class ReturnIn(VersionIn):
+    grade: Literal["A", "B", "C"]  # оценка фиксируется, но возврат всё равно едет в хаб
 
 
 class OrderOut(BaseModel):

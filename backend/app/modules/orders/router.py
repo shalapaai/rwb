@@ -13,7 +13,7 @@ from app.core.db import get_session
 from app.core.idempotency import IdemKey, run_once
 from app.modules.orders import service
 from app.modules.orders.models import Order
-from app.modules.orders.schemas import OrderIn, OrderOut, TasksOut, VersionIn
+from app.modules.orders.schemas import OrderIn, OrderOut, ReturnIn, TasksOut, VersionIn
 
 router = APIRouter(tags=["orders"])
 
@@ -54,6 +54,19 @@ def get(order_id: int, _: AnyRole, db: Db):
     if order is None:
         raise HTTPException(404, f"Нет заказа {order_id}")
     return _out(order)
+
+
+@router.post("/orders/{order_id}/return", response_model=OrderOut)
+def return_after_purchase(order_id: int, body: ReturnIn, key: IdemKey, _: Operator, db: Db):
+    """Возврат после покупки: оценка фиксируется, единица едет в хаб, деньги сторнируются."""
+    result = run_once(
+        db,
+        f"order:{order_id}:return",
+        key,
+        lambda: _out(service.return_order(db, order_id, body.version, body.grade)),
+    )
+    db.commit()
+    return result
 
 
 @router.post("/orders/{order_id}/{action}", response_model=OrderOut)
