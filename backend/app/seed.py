@@ -3,26 +3,93 @@
 Запускается через make seed после применения миграции N1.
 """
 
+import random
 from collections import Counter, defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import NAMESPACE_URL, uuid5
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.core.db import Base, SessionLocal
 from app.modules import all_models  # noqa: F401
-from app.modules.inventory.models import Product, Seller, Unit
+from app.modules.catalog.models import Category, Sale
+from app.modules.inventory.models import MAX_MESH_UNIT_L, Product, Seller, Unit
 from app.modules.inventory.service import sim_now
 from app.modules.network.models import Node, VanRoute, VanStop
 from app.modules.ops.models import SimClock
 from app.modules.routing.demo import demo_city
-from app.modules.routing.models import NodeKind, Sku
+from app.modules.routing.models import City, NodeKind, Sku
 
 SELLER_ID = "S-01"
 MESH_SHARE_PCT = 25
 DEMO_BOXES = tuple(Sku(id=f"SKU-BOX-{litres}L", volume_l=litres) for litres in (3, 5, 8, 10, 50))
+
+MARKING_REASON = "Маркировка «Честный знак»"
+CATEGORIES = [
+    ("kitchen", "Кухня", None, False),
+    ("books", "Книги", None, False),
+    ("office", "Канцелярия", None, False),
+    ("electronics", "Электроника", None, False),
+    ("sports", "Спорт", None, False),
+    ("toys", "Игрушки", None, False),
+    ("tools", "Инструменты и хранение", None, False),
+    ("furniture", "Мебель и крупное", f"Объём больше {MAX_MESH_UNIT_L} л", False),
+    ("shoes", "Обувь", MARKING_REASON, True),
+    ("perfume", "Парфюмерия", MARKING_REASON, True),
+]
+DEMO_CATEGORIES = {
+    "SKU-001": "kitchen",
+    "SKU-002": "books",
+    "SKU-003": "sports",
+    "SKU-005": "toys",
+}
+# Синтетические карточки: номер SKU, категория, название, объём упаковки в л, цена в коп.
+EXTRA_PRODUCTS = [
+    (4, "office", "Блокнот в клетку", 0.4, 25_000),
+    (6, "electronics", "Кабель зарядки", 0.2, 39_000),
+    (7, "tools", "Рулетка", 0.4, 45_000),
+    (8, "furniture", "Табурет", 24.0, 180_000),
+    (9, "shoes", "Кеды", 4.5, 320_000),
+    (10, "perfume", "Духи цветочные", 0.4, 210_000),
+    (11, "kitchen", "Венчик", 0.8, 35_000),
+    (12, "books", "Атлас города", 1.2, 85_000),
+    (13, "sports", "Эспандер", 0.6, 55_000),
+    (14, "office", "Набор карандашей", 0.2, 18_000),
+    (15, "toys", "Кубики", 2.4, 78_000),
+    (16, "electronics", "Мышь проводная", 0.5, 89_000),
+    (17, "tools", "Отвёртка", 0.3, 29_000),
+    (18, "furniture", "Полка настенная", 12.0, 145_000),
+    (19, "shoes", "Тапочки", 2.5, 95_000),
+    (20, "perfume", "Туалетная вода цитрусовая", 0.5, 160_000),
+    (21, "kitchen", "Контейнер для обеда", 1.4, 69_000),
+    (22, "books", "Путеводитель", 0.7, 59_000),
+    (23, "sports", "Скакалка", 0.8, 49_000),
+    (24, "office", "Пенал", 0.5, 32_000),
+    (25, "toys", "Пазл", 1.7, 63_000),
+    (26, "electronics", "Наушники проводные", 0.3, 119_000),
+    (27, "tools", "Набор бит", 0.4, 64_000),
+    (28, "furniture", "Столик складной", 36.0, 390_000),
+    (29, "shoes", "Балетки", 3.0, 230_000),
+    (30, "perfume", "Одеколон", 0.4, 98_000),
+    (31, "kitchen", "Тёрка", 1.1, 48_000),
+    (32, "books", "Сборник рассказов", 0.8, 72_000),
+    (33, "sports", "Мяч для тенниса", 0.4, 28_000),
+    (34, "office", "Папка на молнии", 0.6, 21_000),
+    (35, "toys", "Машинка", 0.7, 54_000),
+    (36, "electronics", "USB-разветвитель", 0.3, 79_000),
+    (37, "tools", "Плоскогубцы", 0.5, 67_000),
+    (38, "furniture", "Тумба", 42.0, 480_000),
+    (39, "shoes", "Сандалии", 3.4, 189_000),
+    (40, "perfume", "Духи древесные", 0.3, 245_000),
+    (41, "kitchen", "Мерный стакан", 0.9, 31_000),
+    (42, "books", "Справочник растений", 1.0, 81_000),
+    (43, "sports", "Лента для растяжки", 0.4, 42_000),
+    (44, "office", "Точилка", 0.1, 12_000),
+    (45, "toys", "Домино", 0.8, 56_000),
+]
 
 
 def _insert_missing(
@@ -30,6 +97,124 @@ def _insert_missing(
 ) -> None:
     if rows:
         session.execute(insert(model).on_conflict_do_nothing(index_elements=keys), rows)
+
+
+def _seed_sales(session: Session, skus: list[str], pvz_ids: list[str], end_day: date) -> None:
+    """Записывает дневные итоги по городу. Отсутствие строки означает нулевые продажи."""
+    rng = random.Random(42)
+    hits, regular, rare = skus[:15], skus[15:-10], skus[-10:]
+    rows = []
+    for month in range(2):
+        first_day = end_day - timedelta(days=59 - 30 * month)
+        for offset in range(30):
+            # Каждый ПВЗ продаёт хотя бы один хит в день; набор хитов у ПВЗ меняется.
+            rng.shuffle(pvz_ids)
+            for index, sku in enumerate(hits):
+                rows.append(
+                    {
+                        "sku": sku,
+                        "pvz_id": pvz_ids[index % len(pvz_ids)],
+                        "day": first_day + timedelta(days=offset),
+                        "qty": rng.randint(1, 3),
+                    }
+                )
+        for group, lower, upper in ((regular, 3, 29), (rare, 0, 2)):
+            for sku in group:
+                for offset in rng.sample(range(30), rng.randint(lower, upper)):
+                    rows.append(
+                        {
+                            "sku": sku,
+                            "pvz_id": rng.choice(pvz_ids),
+                            "day": first_day + timedelta(days=offset),
+                            "qty": 1,
+                        }
+                    )
+    _insert_missing(session, Sale, ("sku", "pvz_id", "day"), rows)
+
+
+def _seed_catalog(session: Session, city: City) -> None:
+    _insert_missing(
+        session,
+        Category,
+        ("id",),
+        [
+            {
+                "id": key,
+                "name": name,
+                "mesh_allowed": reason is None,
+                "ban_reason": reason,
+                "marked": marked,
+            }
+            for key, name, reason, marked in CATEGORIES
+        ],
+    )
+    _insert_missing(
+        session,
+        Seller,
+        ("id",),
+        [
+            {"id": SELLER_ID, "name": "Демо-продавец"},
+            *[{"id": f"S-{n:02}", "name": f"Демо-продавец {n}"} for n in range(2, 9)],
+        ],
+    )
+    products = [
+        {
+            "sku": sku.id,
+            "name": sku.id,
+            "volume_l": sku.volume_l,
+            "price_kop": sku.price_kop,
+            "seller_id": SELLER_ID,
+            "category_id": DEMO_CATEGORIES[sku.id],
+            "mesh_allowed": True,
+        }
+        for sku in city.skus
+    ]
+    for box in DEMO_BOXES:
+        fits = box.volume_l <= MAX_MESH_UNIT_L
+        products.append(
+            {
+                "sku": box.id,
+                "name": "Коробка для хранения",
+                "volume_l": box.volume_l,
+                "price_kop": box.price_kop,
+                "seller_id": SELLER_ID,
+                "category_id": "tools" if fits else "furniture",
+                "mesh_allowed": fits,
+            }
+        )
+    allowed = {key for key, _, reason, _ in CATEGORIES if reason is None}
+    for number, category, name, volume, price in EXTRA_PRODUCTS:
+        products.append(
+            {
+                "sku": f"SKU-{number:03}",
+                "name": name,
+                "volume_l": volume,
+                "price_kop": price,
+                "seller_id": f"S-{(number - 1) % 8 + 1:02}",
+                "category_id": category,
+                "mesh_allowed": category in allowed,
+            }
+        )
+    # При заполнении категории учитываем запрет как карточки, так и самой категории.
+    stmt = insert(Product.__table__)
+    session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["sku"],
+            set_={
+                "category_id": stmt.excluded.category_id,
+                "mesh_allowed": Product.mesh_allowed & stmt.excluded.mesh_allowed,
+            },
+            where=Product.category_id.is_(None),
+        ),
+        products,
+    )
+
+    # Дата первого демо-рейса сохраняется в БД, повтор завтра воспроизведёт те же дни.
+    end_day = session.scalars(
+        select(VanRoute.route_date).where(VanRoute.id == city.routes[0].id)
+    ).one()
+    pvz_ids = sorted(node.id for node in city.nodes if node.kind == NodeKind.PVZ)
+    _seed_sales(session, sorted(p["sku"] for p in products), pvz_ids, end_day)
 
 
 def seed(session: Session) -> None:
@@ -89,22 +274,7 @@ def seed(session: Session) -> None:
         ],
     )
 
-    _insert_missing(session, Seller, ("id",), [{"id": SELLER_ID, "name": "Демо-продавец"}])
-    _insert_missing(
-        session,
-        Product,
-        ("sku",),
-        [
-            {
-                "sku": sku.id,
-                "name": "Коробка для хранения" if sku in DEMO_BOXES else sku.id,
-                "volume_l": sku.volume_l,
-                "price_kop": sku.price_kop,
-                "seller_id": SELLER_ID,
-            }
-            for sku in (*city.skus, *DEMO_BOXES)
-        ],
-    )
+    _seed_catalog(session, city)
 
     # БД выдаёт числовой id, а стабильный штрихкод находит ту же единицу при повторе.
     _insert_missing(

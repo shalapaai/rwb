@@ -57,6 +57,7 @@ class Product(Base):
     sku: Mapped[str] = mapped_column(String(32), primary_key=True)  # «SKU-001»
     name: Mapped[str] = mapped_column(String(200), default="")
     seller_id: Mapped[str] = mapped_column(ForeignKey("sellers.id"))
+    category_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"))
     volume_l: Mapped[float] = mapped_column(Float)  # объём в упаковке, литры
     price_kop: Mapped[int] = mapped_column(BigInteger)  # цена для покупателя, копейки
     mesh_allowed: Mapped[bool] = mapped_column(Boolean, default=True)  # допуск на mesh-полку
