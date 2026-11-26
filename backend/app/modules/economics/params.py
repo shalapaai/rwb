@@ -219,6 +219,81 @@ class ModelParams:
         DOC,
     )
 
+    opened_share: Decimal = assumption(
+        Decimal("0.25"),
+        "Доля B среди пригодных отказов",
+        "доля 0–1",
+        "Сценарий N9: одна переупаковка на четыре пригодных отказа. Замерить на пилоте.",
+        ROADMAP,
+    )
+    loss_share: Decimal = assumption(
+        Decimal("0.003"),
+        "Ожидаемая доля потерь на mesh-полке",
+        "доля 0–1",
+        "Оценка v2 для ПВЗ. Резерв на списание при размещении единицы покрывает МП; "
+        "базовый хабовый маршрут уже включает свои потери.",
+        DOC,
+    )
+    replacement_kop: int = assumption(
+        90000,
+        "Стоимость замещения потерянной единицы",
+        KOPECK,
+        "Товар за 1 500 ₽, условная себестоимость 60% по разделу о недостаче.",
+        DOC,
+    )
+    season_factor: Decimal = assumption(
+        Decimal(1),
+        "Множитель транспортных затрат попутного плеча",
+        "коэффициент",
+        "Обычный сезон = 1. Стресс N9 меняет переменную цену места в газели; "
+        "стоимость труда ПВЗ и эталон хаба зафиксированы.",
+        ROADMAP,
+    )
+    storage_total_l: int = assumption(
+        2000,
+        "Склад типового ПВЗ",
+        "л",
+        "ПВЗ без начального остатка в сиде N2: 500 л свободно при доле mesh 25%.",
+        "backend/app/seed.py",
+    )
+    mesh_share_pct: int = assumption(
+        25,
+        "Базовая доля склада под mesh",
+        "%",
+        "Решение команды v3, диапазон 10–50%.",
+        ROADMAP,
+    )
+    utilization: Decimal = assumption(
+        Decimal("0.5"),
+        "Загрузка выделенной полки",
+        "доля 0–1",
+        "Целевой сценарий пилота: занята половина выделенного объёма.",
+        "docs/05-pilot-and-scaling.md",
+    )
+    month_days: int = assumption(
+        30,
+        "Расчётный месяц",
+        "сут",
+        "Единая база для аренды и литро-дней в docs/02.",
+        DOC,
+    )
+    pvz_demand_per_day: Decimal = assumption(
+        Decimal("0.1"),
+        "Спрос на единицу среднего ассортимента ПВЗ",
+        "ед./сут",
+        "Для месячного сценария интервал заказов 10 суток по ориентиру хранения v2. "
+        "С учётом вывоза на 14-й день среднее время на полке короче.",
+        DOC,
+    )
+
+    @property
+    def storage_tariff(self) -> int:
+        return self.space_kop_l_day + self.shelf_labour_kop_l_day + self.shelf_profit_kop_l_day
+
+    @property
+    def repack_cost(self) -> Decimal:
+        return self.labour(self.repack_min) + self.pack_kop
+
     def labour(self, minutes: int | Decimal) -> Decimal:
         return self.wage_kop_hour * Decimal(minutes) / 60
 
@@ -235,8 +310,26 @@ DEFAULTS = ModelParams()
 
 
 def catalog(params: ModelParams = DEFAULTS) -> list[Parameter]:
-    return [
+    entries = [
         Parameter(id=f.name, value=getattr(params, f.name), **f.metadata) for f in fields(params)
+    ]
+    return entries + [
+        Parameter(
+            id="storage_tariff_kop_l_day",
+            label="Полный тариф хранения",
+            value=params.storage_tariff,
+            unit="коп/(л·сут)",
+            basis="Место + труд + прибыль владельца ПВЗ.",
+            source=ROADMAP,
+        ),
+        Parameter(
+            id="repack_cost_kop",
+            label="Себестоимость переупаковки B",
+            value=kopecks(params.repack_cost),
+            unit=KOPECK,
+            basis="Время переупаковки × стоимость минуты + пакет.",
+            source=ROADMAP,
+        ),
     ]
 
 

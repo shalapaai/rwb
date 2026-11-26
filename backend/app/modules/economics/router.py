@@ -1,16 +1,27 @@
 """Справочник допущений и расчёт экономики отказа для всех ролей.
-Оба запроса читают синтетический сценарий и возвращают расчёт на одну единицу.
+Расчёты охватывают единицу отказа, стресс-сценарии и месяц работы ПВЗ.
 Они не создают операций с остатками или начислений участникам.
 """
 
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import current_role
 from app.modules.economics.params import DEFAULT_REPACK_PAYER, DEFAULTS, catalog
-from app.modules.economics.schemas import Grade, Parameter, RepackPayer, UnitEconomics
+from app.modules.economics.pvz import pvz_month
+from app.modules.economics.schemas import (
+    Grade,
+    Parameter,
+    ParameterBoundary,
+    PvzMonth,
+    RepackPayer,
+    Sensitivity,
+    StressParameter,
+    UnitEconomics,
+)
+from app.modules.economics.sensitivity import boundaries, sensitivity
 from app.modules.economics.service import unit_economics
 
 router = APIRouter(prefix="/model", tags=["economics"], dependencies=[Depends(current_role)])
@@ -42,3 +53,43 @@ def model_unit_economics(
         shelf_days=shelf_days,
         repack_payer=repack_payer,
     )
+
+
+RangeLimit = Annotated[Decimal | None, Query(max_digits=15, decimal_places=6)]
+
+
+@router.get("/sensitivity", summary="Эффект и выгода сторон при изменении одного параметра")
+def model_sensitivity(
+    param: StressParameter = StressParameter.DEMAND,
+    start: Annotated[Decimal | None, Query(alias="from", max_digits=15, decimal_places=6)] = None,
+    to: RangeLimit = None,
+    steps: Annotated[int | None, Query(ge=2, le=501)] = None,
+) -> Sensitivity:
+    try:
+        return sensitivity(param, start, to, steps)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/boundary", summary="Границы выбора mesh при остальных базовых условиях")
+def model_boundary() -> list[ParameterBoundary]:
+    return boundaries()
+
+
+@router.get("/pvz-economics", summary="Доход, затраты и безубыточность ПВЗ за месяц")
+def model_pvz_economics(
+    share: Annotated[
+        int, Query(ge=10, le=50, description="Доля склада под mesh, %.")
+    ] = DEFAULTS.mesh_share_pct,
+    utilization: Annotated[
+        Decimal,
+        Query(
+            ge=0,
+            le=1,
+            max_digits=7,
+            decimal_places=6,
+            description="Доля занятых литров на mesh-полке, от 0 до 1.",
+        ),
+    ] = DEFAULTS.utilization,
+) -> PvzMonth:
+    return pvz_month(share, utilization)
