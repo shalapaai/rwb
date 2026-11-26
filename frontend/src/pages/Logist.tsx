@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { paths } from "../api-types";
-import CityMap from "../components/graph/CityMap";
+import NightPlan from "../components/graph/NightPlan";
 
 type RoutingDemo = paths["/routing/demo"]["get"]["responses"][200]["content"]["application/json"];
 type LoadState = { status: "loading" | "error" } | { status: "ready"; demo: RoutingDemo };
 
-/** Логист видит входные данные маршрутизации и стоимость рассчитанного плана. */
+/** Логист просматривает базовую сеть и шаги ночного планирования. */
 export default function Logist() {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -27,7 +27,7 @@ export default function Logist() {
     <section className="city-map-page" aria-labelledby="city-map-heading">
       <div className="city-map-heading">
         <h1 id="city-map-heading">Схема города</h1>
-        <p>ПВЗ, хаб и базовые маршруты газелей WB</p>
+        <p>От базовых маршрутов газелей WB до ночного плана</p>
       </div>
       {load.status === "loading" && <p role="status">Загружаем схему города…</p>}
       {load.status === "error" && (
@@ -44,7 +44,7 @@ export default function Logist() {
           </button>
         </div>
       )}
-      {load.status === "ready" && <CityMap city={load.demo.city} plan={load.demo.plan} />}
+      {load.status === "ready" && <NightPlan city={load.demo.city} plan={load.demo.plan} />}
     </section>
   );
 }

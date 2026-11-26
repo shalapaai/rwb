@@ -58,6 +58,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/model/params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Синтетические допущения v3 и их основания */
+        get: operations["model_params_model_params_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/model/unit-economics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Стоимость следующей продажи пригодного отказа */
+        get: operations["model_unit_economics_model_unit_economics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pvz/{pvz_id}/refusals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Refusal
+         * @description Отказ при получении: оценка A/B/C → mesh-полка или хаб, начисления ПВЗ.
+         */
+        post: operations["accept_refusal_pvz__pvz_id__refusals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pvz/{pvz_id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Settings
+         * @description ПВЗ сам выбирает долю склада под mesh: 10–50%.
+         */
+        patch: operations["update_settings_pvz__pvz_id__settings_patch"];
+        trace?: never;
+    };
+    "/pvz/{pvz_id}/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Stock
+         * @description Единицы на mesh-полке (старые сверху) и «занято / лимит, л».
+         */
+        get: operations["get_stock_pvz__pvz_id__stock_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ledger": {
         parameters: {
             query?: never;
@@ -323,6 +417,19 @@ export interface components {
             forecast?: components["schemas"]["Forecast"][];
             params?: components["schemas"]["Params"];
         };
+        /** CostItem */
+        CostItem: {
+            /** Label */
+            label: string;
+            /** Formula */
+            formula: string;
+            /** Inputs */
+            inputs: {
+                [key: string]: number | string;
+            };
+            /** Amount Kop */
+            amount_kop: number;
+        };
         /** Decision */
         Decision: {
             /** Order Id */
@@ -335,6 +442,24 @@ export interface components {
         DemoState: {
             city: components["schemas"]["City"];
             plan: components["schemas"]["Plan"];
+        };
+        /** Distribution */
+        Distribution: {
+            /**
+             * Pvz Kop
+             * @description Оплата операций и хранения минус расходы всех ПВЗ.
+             */
+            pvz_kop: number;
+            /**
+             * Seller Kop
+             * @description Снижение платы за доставку за вычетом доплат продавца.
+             */
+            seller_kop: number;
+            /**
+             * Mp Kop
+             * @description Остаток эффекта цепочки после расчётов с ПВЗ и продавцом.
+             */
+            mp_kop: number;
         };
         /** EntryOut */
         EntryOut: {
@@ -488,6 +613,21 @@ export interface components {
             /** Max Hours */
             max_hours?: number | null;
         };
+        /** Parameter */
+        Parameter: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: number | string;
+            /** Unit */
+            unit: string;
+            /** Basis */
+            basis: string;
+            /** Source */
+            source?: string | null;
+        };
         /** Params */
         Params: {
             /**
@@ -633,6 +773,50 @@ export interface components {
             /** Objective Kop */
             objective_kop: number;
         };
+        /** RefusalIn */
+        RefusalIn: {
+            /** Sku Id */
+            sku_id: string;
+            /**
+             * Grade
+             * @enum {string}
+             */
+            grade: "A" | "B" | "C";
+            /** Order Id */
+            order_id?: number | null;
+            /** Barcode */
+            barcode?: string | null;
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+        };
+        /** RefusalOut */
+        RefusalOut: {
+            /** Unit Id */
+            unit_id: number;
+            /** Barcode */
+            barcode: string;
+            /**
+             * Placement
+             * @enum {string}
+             */
+            placement: "shelf" | "hub";
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "shelf" | "repack" | "hub";
+            /** Reason */
+            reason: string;
+            /** Used L */
+            used_l: number;
+            /** Limit L */
+            limit_l: number;
+            /** Txn Ids */
+            txn_ids: number[];
+        };
         /** RerouteDecision */
         RerouteDecision: {
             /** Order Id */
@@ -647,6 +831,13 @@ export interface components {
             penalty_kop: number;
             /** Notifications */
             notifications: string[];
+        };
+        /** Scheme */
+        Scheme: {
+            /** Items */
+            items: components["schemas"]["CostItem"][];
+            /** Total Kop */
+            total_kop: number;
         };
         /** SchemeSummary */
         SchemeSummary: {
@@ -664,6 +855,24 @@ export interface components {
             added_km: number;
             /** Hub Units */
             hub_units: number;
+        };
+        /** SettingsIn */
+        SettingsIn: {
+            /** Mesh Share Pct */
+            mesh_share_pct: number;
+        };
+        /** SettingsOut */
+        SettingsOut: {
+            /** Pvz Id */
+            pvz_id: string;
+            /** Mesh Share Pct */
+            mesh_share_pct: number;
+            /** Used L */
+            used_l: number;
+            /** Limit L */
+            limit_l: number;
+            /** Over Limit */
+            over_limit: boolean;
         };
         /** Sku */
         Sku: {
@@ -688,6 +897,38 @@ export interface components {
             sku_id: string;
             /** Qty */
             qty: number;
+        };
+        /** StockOut */
+        StockOut: {
+            /** Pvz Id */
+            pvz_id: string;
+            /** Mesh Share Pct */
+            mesh_share_pct: number;
+            /** Used L */
+            used_l: number;
+            /** Limit L */
+            limit_l: number;
+            /** Units */
+            units: components["schemas"]["StockUnit"][];
+        };
+        /** StockUnit */
+        StockUnit: {
+            /** Unit Id */
+            unit_id: number;
+            /** Barcode */
+            barcode: string;
+            /** Sku */
+            sku: string;
+            /** Status */
+            status: string;
+            /** Grade */
+            grade: string | null;
+            /** Volume L */
+            volume_l: number;
+            /** Shelved At */
+            shelved_at: string | null;
+            /** Age Days */
+            age_days: number;
         };
         /** Stop */
         Stop: {
@@ -732,6 +973,63 @@ export interface components {
             entries: components["schemas"]["EntryOut"][];
             /** Total Kop */
             total_kop: number;
+        };
+        /** UnitEconomics */
+        UnitEconomics: {
+            /**
+             * Grade
+             * @enum {string}
+             */
+            grade: "A" | "B";
+            /** Volume L */
+            volume_l: string;
+            /** Demand Per Day */
+            demand_per_day: string;
+            /** Shelf Days */
+            shelf_days: number;
+            /**
+             * Repack Payer
+             * @enum {string}
+             */
+            repack_payer: "mp" | "seller";
+            /**
+             * Sale Probability
+             * @description 1 − exp(−λD), где λ — спрос в сутки, D — срок до вывоза.
+             */
+            sale_probability: string;
+            /**
+             * Expected Days
+             * @description p / λ суток на полке, при нулевом спросе — D суток.
+             */
+            expected_days: string;
+            base: components["schemas"]["Scheme"];
+            mesh: components["schemas"]["Scheme"];
+            /**
+             * Local Delivery Min
+             * @description Срок при продаже в городе: (1−α) × срок своей полки + α × срок газели.
+             */
+            local_delivery_min: string;
+            /**
+             * Hub Delivery Min
+             * @description Срок исполнения следующего заказа из хаба.
+             */
+            hub_delivery_min: number;
+            /**
+             * Storage Payment Kop
+             * @description Выплата МП за хранение: место, труд и маржа ПВЗ.
+             */
+            storage_payment_kop: number;
+            /**
+             * Effect After Storage Fee Kop
+             * @description Расчёт по листу «Модель v3»: p·G − c_grade − s·V·E[t], с полным тарифом s.
+             */
+            effect_after_storage_fee_kop: number;
+            /**
+             * Effect Kop
+             * @description Эффект цепочки с учётом того, что маржу хранения получает ПВЗ.
+             */
+            effect_kop: number;
+            distribution: components["schemas"]["Distribution"];
         };
         /** ValidationError */
         ValidationError: {
@@ -836,6 +1134,185 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    model_params_model_params_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-role"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Parameter"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    model_unit_economics_model_unit_economics_get: {
+        parameters: {
+            query?: {
+                grade?: "A" | "B";
+                volume_l?: number | string;
+                demand_per_day?: number | string;
+                /** @description Срок хранения до вывоза, сутки. */
+                shelf_days?: number;
+                /** @description Сценарий оплаты B. Можно сравнить МП и продавца. */
+                repack_payer?: "mp" | "seller";
+            };
+            header?: {
+                "x-role"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitEconomics"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_refusal_pvz__pvz_id__refusals_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "x-role"?: string | null;
+            };
+            path: {
+                pvz_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefusalIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefusalOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_settings_pvz__pvz_id__settings_patch: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "x-role"?: string | null;
+            };
+            path: {
+                pvz_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_stock_pvz__pvz_id__stock_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-role"?: string | null;
+            };
+            path: {
+                pvz_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockOut"];
                 };
             };
             /** @description Validation Error */
