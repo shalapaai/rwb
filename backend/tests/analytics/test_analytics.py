@@ -75,10 +75,11 @@ def test_pvz_analytics(client, city):
     a = client.get(f"/analytics/pvz/{A}", headers=OP).json()
     ops = {i["op"]: i["amount_kop"] for i in a["income"]}
     assert ops["check"] == P.inspection_fee_kop and ops["repack"] == P.repack_fee_kop
-    assert ops["pick"] == P.pick_fee_kop and ops["storage"] > 0
+    # Старейшая единица из сида занимает 2 л ровно 10 суток по часам стенда.
+    assert ops["pick"] == P.pick_fee_kop and ops["storage"] == 2 * 10 * P.storage_tariff
     assert {c["resource"] for c in a["costs"]} >= {"labour", "materials", "rent"}
     assert a["profit_kop"] == a["income_total_kop"] - a["costs_total_kop"] - a["penalties_kop"]
-    assert (a["profit_kop"], a["profit_base_kop"]) == (825, 0)
+    assert (a["profit_kop"], a["profit_base_kop"]) == (815, 0)
     assert a["ops_today"] == 3 and a["ops_limit"] == 60  # проверка, переупаковка, отбор
     assert a["shelf"]["limit_l"] > 0
 

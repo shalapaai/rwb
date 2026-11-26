@@ -22,7 +22,7 @@ from app.modules.orders.models import Order, Reservation
 TABLES = {
     "nodes", "van_routes", "van_stops", "sellers", "products", "units", "orders",
     "reservations", "returns", "ledger_txn", "ledger_entry", "incidents", "notifications",
-    "idempotency_keys", "sim_clock",
+    "idempotency_keys", "sim_clock", "reduction_dispatches", "shelf_writeoffs",
 }  # fmt: skip
 
 

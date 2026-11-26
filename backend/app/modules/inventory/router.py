@@ -1,6 +1,7 @@
 """Эндпоинты ПВЗ: приём отказа, настройки mesh-полки, остатки на полке."""
 
-from typing import Annotated
+from hashlib import sha256
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -14,8 +15,10 @@ from app.modules.inventory.schemas import (
     RefusalOut,
     SettingsIn,
     SettingsOut,
+    ShelfActionOut,
     StockOut,
 )
+from app.modules.orders.schemas import VersionIn
 
 router = APIRouter(prefix="/pvz", tags=["inventory"])
 
@@ -43,20 +46,12 @@ def accept_refusal(pvz_id: str, body: RefusalIn, key: IdemKey, _: Operator, db: 
 def update_settings(pvz_id: str, body: SettingsIn, key: IdemKey, _: Operator, db: Db):
     """ПВЗ сам выбирает долю склада под mesh: 10–50%."""
 
-    def apply() -> dict:
-        node = service.get_pvz(db, pvz_id, lock=True)
-        node.mesh_share_pct = body.mesh_share_pct
-        db.flush()
-        used = service.used_l(db, pvz_id)
-        return {
-            "pvz_id": pvz_id,
-            "mesh_share_pct": node.mesh_share_pct,
-            "used_l": used,
-            "limit_l": node.mesh_limit_l,
-            "over_limit": used > node.mesh_limit_l,
-        }
-
-    result = run_once(db, f"settings:{pvz_id}", key, apply)
+    result = run_once(
+        db,
+        f"settings:{pvz_id}",
+        key,
+        lambda: service.change_share(db, pvz_id, body.mesh_share_pct),
+    )
     db.commit()
     return result
 
@@ -65,3 +60,24 @@ def update_settings(pvz_id: str, body: SettingsIn, key: IdemKey, _: Operator, db
 def get_stock(pvz_id: str, _: AnyRole, db: Db):
     """Единицы на mesh-полке (старые сверху) и «занято / лимит, л»."""
     return service.stock(db, pvz_id)
+
+
+@router.post("/{pvz_id}/units/{unit_id}/{action}", response_model=ShelfActionOut)
+def shelf_action(
+    pvz_id: str,
+    unit_id: int,
+    action: Literal["remove", "return", "shelve", "reduce"],
+    body: VersionIn,
+    key: IdemKey,
+    _: Operator,
+    db: Db,
+):
+    """Подтвердить снятие для возврата или размещение первого ожидающего товара."""
+    result = run_once(
+        db,
+        f"shelf:{unit_id}:{action}:{pvz_id}",
+        sha256(key.encode()).hexdigest(),  # область и ключ вместе должны помещаться в 128 символов
+        lambda: service.complete_shelf_task(db, pvz_id, unit_id, action, body.version),
+    )
+    db.commit()
+    return result
