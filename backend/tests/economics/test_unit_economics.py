@@ -25,6 +25,12 @@ def test_catalog_and_query_contract():
     params = response.json()
     assert params
     assert len({row["id"] for row in params}) == len(params)
+    rates = {row["id"]: (row["value"], row["unit"]) for row in params}
+    assert rates["commission_pct"] == (20, "%")
+    assert rates["issue_fee_pct"] == (3, "%")
+    assert rates["seller_logistics_base_kop"] == (6000, "коп/ед.")
+    assert rates["seller_logistics_mesh_kop"] == (5200, "коп/ед.")
+    assert rates["it_kop"] == (100, "коп/заказ")
     for row in params:
         assert row["label"] and row["unit"] and row["basis"]
         assert row["value"] is not None

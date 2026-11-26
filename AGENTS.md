@@ -89,7 +89,7 @@
 
 Счета проводок:
 - участники: `seller:<id>`, `pvz:<id>`, `mp`;
-- внешний мир: `ext:buyer`, `ext:labour`, `ext:van`, `ext:hub_ops`, `ext:trunk`, `ext:shrink`.
+- внешний мир: `ext:buyer`, `ext:labour`, `ext:van`, `ext:hub_ops`, `ext:trunk`, `ext:shrink`, `ext:it` (расход МП один раз при выдаче местного заказа).
 
 Тариф — перевод внутри цепочки (`mp → pvz:A`). Реальная затрата — уход наружу (`pvz:A → ext:labour`).
 
