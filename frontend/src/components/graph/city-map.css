@@ -453,3 +453,152 @@
   border: 2px solid currentColor;
   border-radius: 50%;
 }
+
+.logist-modes {
+  margin-bottom: 14px;
+}
+
+.logist-modes button[aria-pressed="true"] {
+  border-color: #8555d2;
+  background: #efe7fb;
+  color: #4a2287;
+}
+
+.city-map-svg [role="button"] {
+  cursor: pointer;
+}
+
+.city-map-svg [role="button"]:is(:hover, :focus-visible, [aria-pressed="true"]) .city-map-pvz {
+  fill: #e9def9;
+  stroke: #6b2bd9;
+  stroke-width: 4;
+}
+
+.what-if-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 326px;
+  grid-template-areas: "map panel";
+  align-items: start;
+  gap: 14px;
+}
+
+.what-if-view > .city-map-card {
+  grid-area: map;
+}
+
+.what-if-panel {
+  grid-area: panel;
+}
+
+@media (max-width: 1150px) {
+  .what-if-view {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "panel" "map";
+  }
+}
+
+.what-if-form,
+.what-if-form label,
+.what-if-results {
+  display: grid;
+  gap: 6px;
+}
+
+.what-if-form,
+.what-if-results {
+  margin-top: 14px;
+  gap: 12px;
+}
+
+.what-if-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 68px;
+  gap: 9px;
+}
+
+.what-if-form label {
+  font-weight: 600;
+}
+
+.what-if-form :is(select, input, button) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px solid #dcd3e8;
+  border-radius: 7px;
+  background: #fff;
+  color: #382d49;
+  font: inherit;
+}
+
+.what-if-form button {
+  border-color: #6b2bd9;
+  background: #6b2bd9;
+  color: #fff;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.what-if-form button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.what-if-form [role="alert"] {
+  color: #9c2e25;
+}
+
+.what-if-panel .what-if-hint {
+  margin-top: 8px;
+}
+
+.what-if-choice {
+  padding: 10px 12px;
+  border: 1px solid #e2ddec;
+  border-radius: 8px;
+}
+
+.what-if-choice--primary {
+  border-color: #d3c2ee;
+  background: #f7f3fd;
+}
+
+.what-if-choice p {
+  margin-top: 3px;
+}
+
+.what-if-metrics {
+  display: grid;
+  gap: 3px;
+  margin: 8px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.what-if-metrics div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.what-if-metrics dt {
+  color: #5d5569;
+}
+
+.what-if-metrics dd {
+  margin: 0;
+  font-weight: 650;
+}
+
+.what-if-candidates {
+  margin-top: 8px;
+}
+
+.what-if-candidates summary {
+  color: #542691;
+  cursor: pointer;
+}
+
+.what-if-candidates ul {
+  margin-top: 8px;
+}

@@ -2,11 +2,39 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { paths } from "../api-types";
 import NightPlan from "../components/graph/NightPlan";
+import WhatIf from "../components/graph/WhatIf";
 
 type RoutingDemo = paths["/routing/demo"]["get"]["responses"][200]["content"]["application/json"];
 type LoadState = { status: "loading" | "error" } | { status: "ready"; demo: RoutingDemo };
 
-/** Логист просматривает базовую сеть и шаги ночного планирования. */
+function RoutingWorkspace({ demo }: { demo: RoutingDemo }) {
+  const [mode, setMode] = useState<"plan" | "what-if">("plan");
+  const [source, setSource] = useState<string | null>(null);
+
+  return (
+    <>
+      <div className="night-plan-steps logist-modes" role="group" aria-label="Режим схемы">
+        <button type="button" aria-pressed={mode === "plan"} onClick={() => setMode("plan")}>
+          Ночной план
+        </button>
+        <button type="button" aria-pressed={mode === "what-if"} onClick={() => setMode("what-if")}>
+          Куда нужно товару
+        </button>
+      </div>
+      <div hidden={mode !== "plan"}>
+        <NightPlan city={demo.city} plan={demo.plan} onSelectPvz={(pvz) => {
+          setSource(pvz);
+          setMode("what-if");
+        }} />
+      </div>
+      {mode === "what-if" && (
+        <WhatIf city={demo.city} plan={demo.plan} source={source} onSelectPvz={setSource} />
+      )}
+    </>
+  );
+}
+
+/** Логист просматривает ночной план и примеряет маршруты отдельных товаров. */
 export default function Logist() {
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -44,7 +72,7 @@ export default function Logist() {
           </button>
         </div>
       )}
-      {load.status === "ready" && <NightPlan city={load.demo.city} plan={load.demo.plan} />}
+      {load.status === "ready" && <RoutingWorkspace demo={load.demo} />}
     </section>
   );
 }

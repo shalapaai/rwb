@@ -95,7 +95,15 @@ function OrderDetails({ orderId, parts }: { orderId: string; parts: Assignment[]
   );
 }
 
-export default function NightPlan({ city, plan }: { city: City; plan: Plan }) {
+export default function NightPlan({
+  city,
+  plan,
+  onSelectPvz,
+}: {
+  city: City;
+  plan: Plan;
+  onSelectPvz?: (id: string) => void;
+}) {
   const [step, setStep] = useState<Step>("routes");
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const isResult = step === "result";
@@ -190,7 +198,7 @@ export default function NightPlan({ city, plan }: { city: City; plan: Plan }) {
           {selectedOrder && <OrderDetails orderId={selectedOrder} parts={partsByOrder.get(selectedOrder) ?? []} />}
         </section>
       )}
-      <CityMap city={city} traces={traces} legend={legend} />
+      <CityMap city={city} traces={traces} legend={legend} onSelectPvz={onSelectPvz} />
       {showDetours && (
         <section className="night-plan-panel">
           <h2>Вставленные остановки</h2>

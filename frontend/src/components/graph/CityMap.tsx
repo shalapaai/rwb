@@ -36,10 +36,14 @@ export default function CityMap({
   city,
   traces,
   legend,
+  onSelectPvz,
+  selectedPvz,
 }: {
   city: City;
   traces: MapTrace[];
   legend: TraceKind[];
+  onSelectPvz?: (id: string) => void;
+  selectedPvz?: string | null;
 }) {
   const id = useId();
   const [showRoutes, setShowRoutes] = useState(true);
@@ -101,7 +105,7 @@ export default function CityMap({
         <svg
           className="city-map-svg"
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          role="img"
+          role={onSelectPvz ? "group" : "img"}
           aria-labelledby={`${id}-title`}
           aria-describedby={`${id}-description`}
         >
@@ -154,9 +158,26 @@ export default function CityMap({
             const qty = stockByNode.get(node.id) ?? 0;
             const isHub = node.kind === "hub";
             const label = isHub ? "Хаб" : node.id;
+            const select = onSelectPvz && !isHub ? () => onSelectPvz(node.id) : undefined;
             return (
-              <g key={node.id} transform={`translate(${x} ${y})`} data-node-kind={node.kind}>
+              <g
+                key={node.id}
+                transform={`translate(${x} ${y})`}
+                data-node-kind={node.kind}
+                role={select ? "button" : undefined}
+                tabIndex={select ? 0 : undefined}
+                aria-label={select ? label : undefined}
+                aria-pressed={select ? selectedPvz === node.id : undefined}
+                onClick={select}
+                onKeyDown={select && ((event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    select();
+                  }
+                })}
+              >
                 <title>{!isHub && showStock ? `${label}, остаток ${qty} шт.` : label}</title>
+                {select && <circle r="15" fill="transparent" />}
                 {showRoutes && showEta && arrivals.get(node.id)?.map(({ eta, color }, index) => {
                   const width = 32 + String(eta).length * 7;
                   return (
@@ -206,7 +227,7 @@ export default function CityMap({
           ))}
         </ul>
         {legend.length > 0 && (
-          <ul className="city-map-legend city-map-trace-legend" aria-label="Слои ночного плана">
+          <ul className="city-map-legend city-map-trace-legend" aria-label="Дополнительные слои">
             {legend.map((kind) => (
               <li key={kind}>
                 <span

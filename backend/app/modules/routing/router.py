@@ -21,8 +21,9 @@ from app.modules.routing.daily import (
     day_state,
 )
 from app.modules.routing.demo import demo_city
-from app.modules.routing.models import City, Order, Plan, SchemeSummary
+from app.modules.routing.models import City, NodeKind, Order, Plan, SchemeSummary
 from app.modules.routing.nightly import nightly_plan
+from app.modules.routing.whatif import WhatIfRequest, WhatIfResult, what_if
 
 router = APIRouter(prefix="/routing", tags=["routing"])
 
@@ -87,6 +88,26 @@ def demo_reset(_: AnyRole) -> DemoState:
 @router.get("/demo", response_model=DemoState)
 def demo_get(_: AnyRole) -> DemoState:
     return _state()[0]
+
+
+@router.post("/what-if")
+def preview_route(request: WhatIfRequest, _: Planner) -> WhatIfResult:
+    """Сравнить выбранный ПВЗ, решение алгоритма и хаб без размещения заказа."""
+    if "day" in _demo:
+        view, day = _state()
+        city = view.city
+    else:
+        city = demo_city()
+        plan, evaluation = nightly_plan(city)
+        day = day_state(city, plan.routes, evaluation.cap, evaluation.stock_after, plan.assignments)
+
+    for node_id in (request.source_pvz, request.dest_pvz):
+        node = day.nodes.get(node_id)
+        if node is None or node.kind != NodeKind.PVZ:
+            raise HTTPException(404, f"Нет ПВЗ {node_id}")
+    if not any(sku.id == request.sku_id for sku in city.skus):
+        raise HTTPException(404, f"Нет товара {request.sku_id}")
+    return what_if(day, request)
 
 
 @router.get("/demo/compare", response_model=list[SchemeSummary])
