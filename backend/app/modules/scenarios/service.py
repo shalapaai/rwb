@@ -1,4 +1,4 @@
-"""Пять сценариев защиты одной кнопкой (docs/04): шаги и снимок «до / после».
+"""Шесть сценариев защиты одной кнопкой (docs/04): шаги и снимок «до / после».
 
 Каждый шаг вызывает тот же сервис, что и API (приём отказа, заказ, действия ПВЗ,
 закрытие ПВЗ, тестовые часы), — никаких отдельных «демо-путей». До и после
@@ -16,9 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.core.db import Base
 from app.modules import all_models  # noqa: F401 — все таблицы, чтобы очистить каждую
+from app.modules.catalog import service as catalog
+from app.modules.catalog.models import Category
 from app.modules.economics.params import DEFAULTS as P
 from app.modules.inventory import service as inventory
-from app.modules.inventory.models import Unit
+from app.modules.inventory.models import Product, Unit
 from app.modules.ledger.models import LedgerEntry, LedgerTxn
 from app.modules.network.models import Node
 from app.modules.ops import service as ops
@@ -35,6 +37,7 @@ TITLES = {
     3: "Возврат после выдачи → оценка → хаб",
     4: "ПВЗ-B закрылся, пока товар в газели G1",
     5: "Отказ без спроса: уведомление на 7-й день, решение на 14-й",
+    6: "Непопулярный или маркированный отказ → хаб, хит → полка",
 }
 
 
@@ -260,12 +263,56 @@ def _scenario_5(r: Run) -> None:
     }
 
 
-SCENARIOS = {1: _scenario_1, 2: _scenario_2, 3: _scenario_3, 4: _scenario_4, 5: _scenario_5}
+def _scenario_6(r: Run) -> None:
+    rows = catalog.product_rows(r.s)
+    # Товар без спроса: категория разрешена, но продаж в городе меньше порога модели.
+    # Берём из каталога, а не по номеру: спрос зависит от дня стенда (сценарий 5 сдвигает часы).
+    dud = min(
+        (x for x in rows if not x["mesh_eligible"] and x["reason"].startswith("спрос")),
+        key=lambda x: (x["demand_per_day"], x["sku"]),
+    )
+    shoe = r.s.scalar(
+        select(Product.sku)
+        .join(Category, Category.id == Product.category_id)
+        .where(Category.marked)
+        .order_by(Product.sku)
+    )
+    hit = r.step(
+        "ПВЗ-A: отказ хита SKU-001, оценка A",
+        lambda: inventory.accept_refusal(r.s, A, "SKU-001", "A", _key()),
+    )
+    r.check("хит лёг на полку", hit["placement"] == "shelf")
+    low = r.step(
+        f"ПВЗ-A: отказ {dud['sku']} ({dud['name']}), {dud['sales_30d']} продаж за 30 дней",
+        lambda: inventory.accept_refusal(r.s, A, dud["sku"], "A", _key()),
+    )
+    r.check(
+        "товар без спроса едет в хаб: спрос ниже порога модели",
+        low["placement"] == "hub" and "ниже порога" in low["reason"],
+    )
+    marked = r.step(
+        f"ПВЗ-A: отказ {shoe}, маркированная категория, оценка A",
+        lambda: inventory.accept_refusal(r.s, A, shoe, "A", _key()),
+    )
+    r.check(
+        "маркированный товар едет в хаб, даже если не вскрыт",
+        marked["placement"] == "hub" and "аркир" in marked["reason"],
+    )
+
+
+SCENARIOS = {
+    1: _scenario_1,
+    2: _scenario_2,
+    3: _scenario_3,
+    4: _scenario_4,
+    5: _scenario_5,
+    6: _scenario_6,
+}
 
 
 def run(session: Session, n: int) -> dict:
     if n not in SCENARIOS:
-        raise HTTPException(404, f"Нет сценария {n}: доступны 1–5")
+        raise HTTPException(404, f"Нет сценария {n}: доступны 1–6")
     before = snapshot(session)
     r = Run(session)
     SCENARIOS[n](r)

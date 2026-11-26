@@ -1,4 +1,4 @@
-"""Раннер сценариев (F2): сброс, пять сценариев одной кнопкой, отчёт docs/scenario-report.md."""
+"""Раннер сценариев (F2, MX2): сброс, шесть сценариев, отчёт docs/scenario-report.md."""
 
 import re
 from pathlib import Path
@@ -121,9 +121,9 @@ def write_report(runs: list[dict]) -> None:
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_all_five_scenarios_and_report(client, db):
+def test_all_six_scenarios_and_report(client, db):
     post(client, "/scenarios/reset")
-    runs = [post(client, f"/scenarios/{n}/run") for n in range(1, 6)]
+    runs = [post(client, f"/scenarios/{n}/run") for n in range(1, 7)]
     for r in runs:
         failed = [c["check"] for c in r["checks"] if not c["ok"]]
         assert r["ok"], f"сценарий {r['scenario']}: {failed}"
@@ -131,6 +131,8 @@ def test_all_five_scenarios_and_report(client, db):
     assert runs[0]["orders"][0]["after"] == "issued"
     assert any(o["after"] == "returned" for o in runs[2]["orders"])
     assert runs[3]["closed_pvz"]["after"] == []  # инцидент снят в конце сценария 4
+    placements = [s["result"].get("placement") for s in runs[5]["steps"]]
+    assert placements == ["shelf", "hub", "hub"]  # хит / без спроса / маркированный
     if REPORT.parent.is_dir():  # в контейнере docs/ нет — пишем только из репозитория
         write_report(runs)
 

@@ -100,7 +100,10 @@ def _insert_missing(
 
 
 def _seed_sales(session: Session, skus: list[str], pvz_ids: list[str], end_day: date) -> None:
-    """Записывает дневные итоги по городу. Отсутствие строки означает нулевые продажи."""
+    """Записывает дневные итоги по городу. Отсутствие строки означает нулевые продажи.
+
+    Первые 15 SKU — хиты, последние 10 — редкие, остальные — обычные.
+    """
     rng = random.Random(42)
     hits, regular, rare = skus[:15], skus[15:-10], skus[-10:]
     rows = []
@@ -214,7 +217,11 @@ def _seed_catalog(session: Session, city: City) -> None:
         select(VanRoute.route_date).where(VanRoute.id == city.routes[0].id)
     ).one()
     pvz_ids = sorted(node.id for node in city.nodes if node.kind == NodeKind.PVZ)
-    _seed_sales(session, sorted(p["sku"] for p in products), pvz_ids, end_day)
+    # Коробки до 10 л — хиты: на них в ПВЗ показывают заполнение полки и очередь, а правило
+    # MX2 пускает на полку только товары со спросом не ниже порога модели.
+    boxes = [p["sku"] for p in products if p["sku"].startswith("SKU-BOX-") and p["mesh_allowed"]]
+    rest = sorted(p["sku"] for p in products if p["sku"] not in boxes)
+    _seed_sales(session, boxes + rest, pvz_ids, end_day)
 
 
 def seed(session: Session) -> None:

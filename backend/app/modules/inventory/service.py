@@ -104,6 +104,12 @@ def accept_refusal(
 
     used, limit = used_l(session, pvz_id), node.mesh_limit_l
     now = sim_now(session)
+    eligible, eligible_reason = True, ""
+    if product.category_id is not None:
+        # импорт здесь: каталог сам берёт sim_now из этого модуля
+        from app.modules.catalog.service import eligibility
+
+        eligible, eligible_reason = eligibility(session, sku)
     status = "to_hub"
     category = None
     if product.volume_l > MAX_MESH_UNIT_L:
@@ -112,7 +118,12 @@ def accept_refusal(
     elif grade == "C":
         category = "packaging"
         decision, reason = "hub", "Упаковку нельзя восстановить (оценка C)"
+    elif not eligible:
+        # MX2: запрещённая категория, маркировка или спрос в городе ниже порога модели —
+        # такой отказ на полке не продастся, везём в хаб. Причина — из каталога.
+        decision, reason = "hub", eligible_reason
     elif not product.mesh_allowed:
+        # товар вне каталога (нет категории и истории продаж) — проверяем только допуск карточки
         decision, reason = "hub", "товар не допущен на mesh-полку"
     elif product.volume_l > limit:
         category = "volume"
