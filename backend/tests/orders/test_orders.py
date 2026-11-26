@@ -106,6 +106,7 @@ def test_scenario_1_refusal_in_a_sold_in_b_by_van(client, db, city):
     # деньги: всё сходится, продавец в mesh получает больше на скидку за местное исполнение
     assert unbalanced_txn_ids(db) == []
     mesh, base = sums(db, o["id"], "mesh"), sums(db, o["id"], "base")
+    assert mesh["ext:it"] == 100 and "ext:it" not in base
     price = 150000
     commission = pricing.pct(price, pricing.COMMISSION_PCT)
     assert mesh["seller:S-01"] == price - commission - pricing.SELLER_LOGISTICS_MESH_KOP
@@ -118,11 +119,15 @@ def test_scenario_1_refusal_in_a_sold_in_b_by_van(client, db, city):
 
 
 def test_own_shelf_goes_straight_to_issue(client, db, city):
-    o = order(client, A)
+    o = order(client, A, qty=2)
     assert o["variant"] == "own"
     o = step(client, o, "pick")
     assert o["status"] == "ready"  # со своей полки — сразу в ячейку выдачи
-    assert step(client, o, "issue")["status"] == "issued"
+    assert "ext:it" not in sums(db, o["id"], "mesh")
+    issued = step(client, o, "issue")
+    assert issued["status"] == "issued"
+    assert step(client, o, "issue") == issued  # повтор с тем же ключом
+    assert sums(db, o["id"], "mesh")["ext:it"] == 100  # за обе единицы вместе
 
 
 def test_hub_order_when_no_city_stock(client, db, city):
@@ -131,6 +136,7 @@ def test_hub_order_when_no_city_stock(client, db, city):
     o = step(client, o, "receive")
     step(client, o, "issue")
     mesh, base = sums(db, o["id"], "mesh"), sums(db, o["id"], "base")
+    assert "ext:it" not in mesh and "ext:it" not in base
     assert mesh["ext:hub_ops"] == base["ext:hub_ops"]  # без отказа в городе схемы совпадают
     assert unbalanced_txn_ids(db) == []
 

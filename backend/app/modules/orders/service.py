@@ -345,6 +345,16 @@ def act(session: Session, order_id: int, action: str, version: int) -> Order:
             pricing.SELLER_LOGISTICS_MESH_KOP if local else pricing.SELLER_LOGISTICS_BASE_KOP
         )
         _post_sale(session, order, product, "mesh", logistics, issue_node(order), k)
+        if local and P.it_kop:
+            # Сканирование и ИТ оплачивает МП один раз за выданный местный заказ.
+            post(
+                session,
+                "mesh",
+                "cost",
+                order.id,
+                [("mp", -P.it_kop), ("ext:it", P.it_kop)],
+                key=f"{k}:it",
+            )
     elif action == "cancel":
         _move(order, "cancelled")
         for u in units:
