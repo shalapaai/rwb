@@ -23,6 +23,7 @@ from app.modules.economics.schemas import (
 )
 from app.modules.economics.sensitivity import boundaries, sensitivity
 from app.modules.economics.service import unit_economics
+from app.modules.routing.generator import RobustnessReport, robustness_report
 
 router = APIRouter(prefix="/model", tags=["economics"], dependencies=[Depends(current_role)])
 
@@ -93,3 +94,8 @@ def model_pvz_economics(
     ] = DEFAULTS.utilization,
 ) -> PvzMonth:
     return pvz_month(share, utilization)
+
+
+@router.get("/robustness", summary="Устойчивость трёх схем доставки на 20 синтетических городах")
+def model_robustness() -> RobustnessReport:
+    return robustness_report()
