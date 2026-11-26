@@ -22,7 +22,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.modules.economics.params import DEFAULTS as P
 from app.modules.economics.params import kopecks, routing_params
-from app.modules.inventory.models import Product, Unit
+from app.modules.inventory.models import Product, Return, Unit
 from app.modules.inventory.service import sim_now, used_l
 from app.modules.ledger.models import LedgerEntry, LedgerTxn
 from app.modules.ledger.service import post
@@ -30,7 +30,7 @@ from app.modules.network.models import Node, VanRoute, VanStop
 from app.modules.orders import pricing
 from app.modules.orders.models import Order, Reservation
 from app.modules.routing import models as rm
-from app.modules.routing.daily import choose, day_state
+from app.modules.routing.daily import DayState, choose, day_state
 from app.modules.routing.network import Capacity
 
 # какой статус в какой можно перевести; остальное — 409
@@ -128,6 +128,31 @@ def _busy_capacity(session: Session, city: rm.City) -> Capacity:
     return cap
 
 
+def _assignment(o: Order) -> rm.Assignment:
+    legs = [rm.Leg(**leg) for leg in _chosen(o).get("legs") or []]
+    return rm.Assignment(
+        order_id=str(o.id),
+        sku_id=o.sku,
+        qty=o.qty,
+        variant=o.variant,
+        source_node=o.source_node,
+        money_kop=o.cost_kop or 0,
+        hours=o.eta_h or 0,
+        legs=legs,
+    )
+
+
+def load_day_state(session: Session, active: list[Order] | None = None) -> DayState:
+    """Дневное состояние алгоритма из БД: город, свободные места, остатки на полках.
+
+    active — заказы газелью, которые алгоритм должен «видеть» (например, при закрытии ПВЗ).
+    """
+    city = build_city(session)
+    stock = {(s.node_id, s.sku_id): s.qty for s in city.stock}
+    assignments = [_assignment(o) for o in active or []]
+    return day_state(city, city.routes, _busy_capacity(session, city), stock, assignments)
+
+
 # ---------------------------------------------------------------- создание заказа
 
 
@@ -141,9 +166,7 @@ def create_order(
     if pvz is None or pvz.kind != "pvz":
         raise HTTPException(404, f"Нет ПВЗ {pvz_id}")
 
-    city = build_city(session)
-    stock = {(s.node_id, s.sku_id): s.qty for s in city.stock}
-    st = day_state(city, city.routes, _busy_capacity(session, city), stock, [])
+    st = load_day_state(session)
     decision = choose(
         st,
         rm.Order(id="new", sku_id=sku, qty=qty, pvz_id=pvz_id, accepts_neighbor=accepts_neighbor),
@@ -257,14 +280,16 @@ def _move(order: Order, to: str) -> None:
     order.status = to
 
 
-def _units(session: Session, order: Order) -> list[Unit]:
-    return list(
-        session.scalars(
-            select(Unit)
-            .join(Reservation, Reservation.unit_id == Unit.id)
-            .where(Reservation.order_id == order.id, Reservation.active)
-        )
+def _units(session: Session, order: Order, active_only: bool = True) -> list[Unit]:
+    """Единицы заказа; после выдачи резерв снят — для возврата ищем и по снятым."""
+    q = (
+        select(Unit)
+        .join(Reservation, Reservation.unit_id == Unit.id)
+        .where(Reservation.order_id == order.id)
     )
+    if active_only:
+        q = q.where(Reservation.active)
+    return list(session.scalars(q))
 
 
 def issue_node(order: Order) -> str:
@@ -396,17 +421,63 @@ def _post_storage(session: Session, order: Order, units: list[Unit], k: str) -> 
         post(session, "mesh", "cost", order.id, legs, key=f"{k}:storage_cost")
 
 
-def _reverse(session: Session, order: Order, scheme: str, k: str) -> None:
+def _reverse(
+    session: Session, order: Order, scheme: str, k: str, kinds: tuple[str, ...] | None = None
+) -> None:
     """Сторно: новая проводка с обратными знаками, старые записи не трогаем."""
-    txns = session.scalars(
-        select(LedgerTxn).where(LedgerTxn.order_id == order.id, LedgerTxn.scheme == scheme)
-    ).all()
+    q = select(LedgerTxn).where(LedgerTxn.order_id == order.id, LedgerTxn.scheme == scheme)
+    if kinds:
+        q = q.where(LedgerTxn.kind.in_(kinds))
+    txns = session.scalars(q.order_by(LedgerTxn.id)).all()
     for t in txns:
         legs = [
             (e.account, -e.amount_kop)
             for e in session.scalars(select(LedgerEntry).where(LedgerEntry.txn_id == t.id))
         ]
         post(session, scheme, "return", order.id, legs, key=f"{k}:reverse:{t.id}")
+
+
+# ---------------------------------------------------------------- возврат после покупки
+
+
+def return_order(session: Session, order_id: int, version: int, grade: str) -> Order:
+    """Покупатель вернул выданный товар (сценарий 3).
+
+    Решение N0: возврат после покупки на mesh-полку не кладём — при любой оценке
+    единица едет в хаб. Оценку фиксируем (для статистики и претензий продавцу).
+    Деньги: покупателю возвращаем оплату, у продавца снимаем выплату — новыми
+    проводками с обратными знаками; ПВЗ получает тариф за проверку; обратная
+    дорога в хаб — затрата маркетплейса.
+    """
+    order = _load(session, order_id, version)
+    _move(order, "returned")
+    node = issue_node(order)
+    k = f"order:{order.id}:return"
+    for u in _units(session, order, active_only=False):
+        u.status, u.node_id = "to_hub", node
+        session.add(
+            Return(
+                unit_id=u.id,
+                order_id=order.id,
+                pvz_id=node,
+                kind="return",
+                grade=grade,
+                decision="hub",
+                reason="возврат после покупки — в хаб (решение N0)",
+            )
+        )
+    _reverse(session, order, "mesh", k, kinds=("sale",))  # оплата и выплата продавцу
+    pvz = f"pvz:{node}"
+    fee, work = P.inspection_fee_kop * order.qty, _labour(P.inspection_min) * order.qty
+    post(session, "mesh", "tariff", order.id, [("mp", -fee), (pvz, fee)], key=f"{k}:check")
+    post(session, "mesh", "cost", order.id, [(pvz, -work), ("ext:labour", work)], key=f"{k}:labour")
+    back = P.hub_return_kop * order.qty
+    post(session, "mesh", "cost", order.id, [("mp", -back), ("ext:hub_ops", back)], key=f"{k}:hub")
+    try:
+        session.flush()
+    except StaleDataError as exc:
+        raise _conflict("Заказ или единицу одновременно изменили — обновите") from exc
+    return order
 
 
 # ---------------------------------------------------------------- задания ПВЗ
@@ -416,7 +487,9 @@ def tasks(session: Session, pvz_id: str) -> dict:
     if session.get(Node, pvz_id) is None:
         raise HTTPException(404, f"Нет ПВЗ {pvz_id}")
     orders = session.scalars(
-        select(Order).where(Order.status.in_(("reserved", "picked", "in_transit", "ready")))
+        select(Order).where(
+            Order.status.in_(("reserved", "picked", "in_transit", "rerouted", "ready"))
+        )
     ).all()
 
     def row(o: Order) -> dict:
@@ -438,6 +511,8 @@ def tasks(session: Session, pvz_id: str) -> dict:
         "pvz_id": pvz_id,
         "to_pick": [row(o) for o in orders if o.status == "reserved" and o.source_node == pvz_id],
         "to_load": [row(o) for o in orders if o.status == "picked" and o.source_node == pvz_id],
-        "to_receive": [row(o) for o in orders if o.status == "in_transit" and o.pvz_id == pvz_id],
+        "to_receive": [
+            row(o) for o in orders if o.status in ("in_transit", "rerouted") and o.pvz_id == pvz_id
+        ],
         "to_issue": [row(o) for o in orders if o.status == "ready" and issue_node(o) == pvz_id],
     }
