@@ -100,20 +100,13 @@ def test_monthly_costs_and_break_even():
         == row["space_cost_kop"] + row["materials_cost_kop"] + row["labour_cost_kop"]
     )
     assert row["profit_kop"] == row["income_kop"] - row["cost_kop"]
-    # При текущих выплатах за проверку и приём трансфера даже полная полка убыточна.
-    assert Decimal(row["break_even_utilization"]) > 1
+    assert 0 < Decimal(row["break_even_utilization"]) < Decimal("0.5")
+    assert row["profit_kop"] == 278984
     full = client.get("/model/pvz-economics", params={"utilization": 1}).json()
-    assert full["profit_kop"] < 0
+    assert full["profit_kop"] == 632967
 
     # При равенстве выплат и затрат на каждую операцию только хранение даёт прибыль.
-    p = replace(
-        DEFAULTS,
-        opened_share=Decimal(0),
-        wage_kop_hour=0,
-        inspection_fee_kop=0,
-        pick_fee_kop=0,
-        receive_fee_kop=0,
-    )
+    p = replace(DEFAULTS, opened_share=Decimal(0), wage_kop_hour=0)
     balanced = pvz_month(25, Decimal("0.5"), p)
     assert balanced.break_even_utilization == Decimal("0.5")
     assert balanced.profit_kop == 0

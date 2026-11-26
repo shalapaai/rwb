@@ -56,9 +56,9 @@ def test_grade_a_goes_to_shelf_and_pays_check(client, db, pvz):
     unit = db.get(Unit, r["unit_id"])
     assert unit.status == "on_shelf" and unit.grade == "A" and unit.shelved_at is not None
     # МП платит ПВЗ тариф за проверку, ПВЗ платит за время сотрудника
-    assert CHECK_LABOUR == 1650 and P.inspection_fee_kop == 1500
+    assert CHECK_LABOUR == 1650 and P.inspection_fee_kop == 1980
     assert legs(db, r["txn_ids"]) == sorted(
-        [("mp", -1500), ("pvz:T-A", 1500), ("pvz:T-A", -1650), ("ext:labour", 1650)]
+        [("mp", -1980), ("pvz:T-A", 1980), ("pvz:T-A", -1650), ("ext:labour", 1650)]
     )
     assert unbalanced_txn_ids(db) == []
 
@@ -73,7 +73,7 @@ def test_grade_b_is_repacked_and_pays_both(client, db, pvz):
     expected = (P.inspection_fee_kop - CHECK_LABOUR) + (
         P.repack_fee_kop - REPACK_LABOUR - P.pack_kop
     )
-    assert pvz_net == expected == -56  # −1,50 ₽ на проверке, +0,94 ₽ на переупаковке
+    assert pvz_net == expected == 550  # +3,30 ₽ на проверке, +2,20 ₽ на переупаковке
 
 
 def test_grade_c_goes_to_hub_but_check_is_paid(client, db, pvz):
