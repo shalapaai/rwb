@@ -78,6 +78,7 @@ def test_pvz_analytics(client, city):
     assert ops["pick"] == P.pick_fee_kop and ops["storage"] > 0
     assert {c["resource"] for c in a["costs"]} >= {"labour", "materials", "rent"}
     assert a["profit_kop"] == a["income_total_kop"] - a["costs_total_kop"] - a["penalties_kop"]
+    assert (a["profit_kop"], a["profit_base_kop"]) == (825, 0)
     assert a["ops_today"] == 3 and a["ops_limit"] == 60  # проверка, переупаковка, отбор
     assert a["shelf"]["limit_l"] > 0
 
@@ -85,6 +86,7 @@ def test_pvz_analytics(client, city):
     ops_b = {i["op"]: i["amount_kop"] for i in b["income"]}
     assert ops_b["receive"] == P.receive_fee_kop
     assert ops_b["issue_fee"] == 2 * pricing.pct(150000, pricing.ISSUE_FEE_PCT)  # два заказа
+    assert (b["profit_kop"], b["profit_base_kop"]) == (9082, 9000)
     assert b["profit_base_kop"] == ops_b["issue_fee"]  # через хаб ПВЗ получает только за выдачу
 
 

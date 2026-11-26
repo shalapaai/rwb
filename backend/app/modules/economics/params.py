@@ -160,32 +160,12 @@ class ModelParams:
         "Лист «Модель v3»: 36 ч с момента следующего заказа.",
         ROADMAP,
     )
-    inspection_fee_kop: int = assumption(
-        1500,
-        "Выплата ПВЗ за оценку",
-        KOPECK,
-        "Внутренний тариф v2 за проверку возврата.",
-        DOC,
-    )
-    repack_fee_kop: int = assumption(
-        1500,
-        "Выплата ПВЗ за переупаковку B",
-        KOPECK,
-        "Синтетическая компенсация сверх проверки: 11 ₽ труда + 3,06 ₽ пакет + 0,94 ₽ маржи.",
-        ROADMAP,
-    )
-    pick_fee_kop: int = assumption(
-        900,
-        "Выплата ПВЗ за отбор",
-        KOPECK,
-        "Внутренний тариф v2 за отбор.",
-        DOC,
-    )
-    receive_fee_kop: int = assumption(
-        400,
-        "Выплата ПВЗ за приём из газели",
-        KOPECK,
-        "Внутренний тариф v2 за приём.",
+    operation_markup_pct: int = assumption(
+        20,
+        "Наценка ПВЗ на труд при проверке, переупаковке, отборе и приёмке",
+        "%",
+        "Синтетическое допущение по примеру проверки в v2: три минуты по 250 ₽/ч "
+        "стоили 12,50 ₽ при выплате 15 ₽. Пакет возмещается по себестоимости.",
         DOC,
     )
     commission_pct: int = assumption(
@@ -323,6 +303,26 @@ class ModelParams:
     def labour(self, minutes: int | Decimal) -> Decimal:
         return self.wage_kop_hour * Decimal(minutes) / 60
 
+    def operation_fee(self, minutes: int | Decimal, materials_kop: int = 0) -> int:
+        labour_with_markup = self.labour(minutes) * (100 + self.operation_markup_pct) / 100
+        return kopecks(labour_with_markup + materials_kop)
+
+    @property
+    def inspection_fee_kop(self) -> int:
+        return self.operation_fee(self.inspection_min)
+
+    @property
+    def repack_fee_kop(self) -> int:
+        return self.operation_fee(self.repack_min, self.pack_kop)
+
+    @property
+    def pick_fee_kop(self) -> int:
+        return self.operation_fee(self.pick_min)
+
+    @property
+    def receive_fee_kop(self) -> int:
+        return self.operation_fee(self.receive_min)
+
     @property
     def own_cost(self) -> Decimal:
         return self.labour(self.pick_min) + self.it_kop
@@ -339,6 +339,25 @@ def catalog(params: ModelParams = DEFAULTS) -> list[Parameter]:
     entries = [
         Parameter(id=f.name, value=getattr(params, f.name), **f.metadata) for f in fields(params)
     ]
+    for key, operation in (
+        ("inspection_fee_kop", "оценку"),
+        ("repack_fee_kop", "переупаковку B"),
+        ("pick_fee_kop", "отбор"),
+        ("receive_fee_kop", "приём из газели"),
+    ):
+        basis = "Стоимость труда по нормативу операции × (1 + наценка ПВЗ / 100)."
+        if key == "repack_fee_kop":
+            basis += " Дополнительно возмещается один пакет по себестоимости."
+        entries.append(
+            Parameter(
+                id=key,
+                label=f"Выплата ПВЗ за {operation}",
+                value=getattr(params, key),
+                unit=KOPECK,
+                basis=basis,
+                source=DOC,
+            )
+        )
     return entries + [
         Parameter(
             id="seller_logistics_mesh_kop",

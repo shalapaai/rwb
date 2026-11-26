@@ -4,13 +4,14 @@
 Сценарии B проверяют, как внутренняя оплата меняет выгоду сторон.
 """
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.modules.economics.params import routing_params
+from app.modules.economics.params import DEFAULTS, routing_params
 
 client = TestClient(app)
 HEADERS = {"X-Role": "seller"}
@@ -26,6 +27,11 @@ def test_catalog_and_query_contract():
     assert params
     assert len({row["id"] for row in params}) == len(params)
     rates = {row["id"]: (row["value"], row["unit"]) for row in params}
+    assert rates["operation_markup_pct"] == (20, "%")
+    assert rates["inspection_fee_kop"] == (1980, "коп/ед.")
+    assert rates["repack_fee_kop"] == (1626, "коп/ед.")
+    assert rates["pick_fee_kop"] == (990, "коп/ед.")
+    assert rates["receive_fee_kop"] == (495, "коп/ед.")
     assert rates["commission_pct"] == (20, "%")
     assert rates["issue_fee_pct"] == (3, "%")
     assert rates["seller_logistics_base_kop"] == (6000, "коп/ед.")
@@ -50,7 +56,7 @@ def test_no_demand_charges_full_shelf_period_then_hub():
     assert result["mesh"]["total_kop"] == 9740 + 1650 + 140
     assert result["storage_payment_kop"] == 2 * 7 * 15
     assert result["effect_after_storage_fee_kop"] == -1650 - 2 * 7 * 15
-    assert result["distribution"] == {"pvz_kop": -80, "seller_kop": 0, "mp_kop": -1710}
+    assert result["distribution"] == {"pvz_kop": 400, "seller_kop": 0, "mp_kop": -2190}
     assert result["effect_kop"] == result["base"]["total_kop"] - result["mesh"]["total_kop"]
 
 
@@ -86,3 +92,10 @@ def test_team_defaults_and_routing_prices():
     assert result["hub_delivery_min"] == 2160
     routing = routing_params()
     assert (routing.hub_kop, routing.own_kop, routing.move_kop) == (6040, 925, 813)
+
+
+def test_operation_fees_follow_labour_and_reimburse_materials_at_cost():
+    p = replace(DEFAULTS, wage_kop_hour=40000, pack_kop=500)
+    assert (p.inspection_fee_kop, p.repack_fee_kop, p.pick_fee_kop, p.receive_fee_kop) == (
+        2400, 2100, 1200, 600,
+    )
