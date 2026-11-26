@@ -8,10 +8,8 @@
     (и, возможно, пересесть в другую газель) и выйти в ПВЗ B   — VAN;
   * отсутствовать в городе — тогда заказ закрывает хаб          — HUB.
 
-Все варианты — рёбра одного графа с ценой «деньги + λ·часы», поэтому
-networkx.min_cost_flow сам выбирает самый дешёвый способ сразу для всех заказов
-одного артикула. Встречные перевозки при этом не возникают: поток минимальной
-стоимости их не содержит.
+Все варианты — рёбра графа с ценой «деньги + λ·часы». Метки на рёбрах задают
+общие для всех артикулов ёмкости кузовов, операций ПВЗ и полок.
 
 Переброска под прогноз: у каждого ПВЗ есть узел цели ("tgt", ПВЗ) с ёмкостью
 «целевой запас». Каждая единица, которая к вечеру лежит в ПВЗ в пределах цели —
@@ -21,7 +19,9 @@ networkx.min_cost_flow сам выбирает самый дешёвый спо�
 """
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 import networkx as nx
 
@@ -43,6 +43,8 @@ HUB = "HUB"  # источник «бесконечного» товара баз
 KEEP = "KEEP"  # сток: товар, который остался лежать
 UNASSIGNED = "UNASSIGNED"  # неудовлетворённый спрос, без отгрузки и списания
 DAY_MIN = 24 * 60
+type ResourceKey = str | tuple[str, int]
+type Resource = tuple[str, ResourceKey]
 
 
 # ---------------------------------------------------------------- геометрия
@@ -100,6 +102,15 @@ class Capacity:
     next_seg_free: dict[tuple[str, int], int] = field(default_factory=dict)
     next_in_left: dict[str, int] = field(default_factory=dict)
 
+    def remaining(self, resource: Resource) -> Decimal:
+        pool, key = resource
+        return Decimal(str(getattr(self, pool)[key]))
+
+    def consume(self, resource: Resource, amount: Decimal) -> None:
+        pool, key = resource
+        remaining = self.remaining(resource) - amount
+        getattr(self, pool)[key] = float(remaining) if pool == "shelf_left_l" else int(remaining)
+
     @classmethod
     def from_routes(
         cls, routes: list[VanRoute], nodes: dict[str, Node], p: Params,
@@ -128,9 +139,23 @@ class SkuProblem:
     target: dict[str, int] = field(default_factory=dict)  # ПВЗ → сколько выгодно держать
 
 
+def _capacity_edge(
+    graph: nx.DiGraph, cap: Capacity, source, dest, resource: Resource, *,
+    weight: int = 0, units: Decimal = Decimal(1),
+) -> None:
+    graph.add_edge(
+        source, dest, weight=weight, capacity=int(cap.remaining(resource) // units),
+        resource=resource, units=units,
+    )
+
+
+def _meets_deadline(order: Order, hours: float) -> bool:
+    return order.max_hours is None or hours <= order.max_hours
+
+
 def _add_hub_relay(
     g: nx.DiGraph, city: City, routes: list[VanRoute], nodes: dict[str, Node],
-    cap: Capacity, orders: list[Order],
+    cap: Capacity, orders_by_pvz: dict[str, list[Order]],
 ) -> None:
     """Товар для завтрашней отгрузки должен приехать с полки тем же потоком."""
     p = city.params
@@ -143,10 +168,9 @@ def _add_hub_relay(
             continue
         # Отдельный отрезок после последнего ПВЗ использует сегодняшнюю ёмкость кузова.
         back = ("return", route.id, last)
-        g.add_edge(("stop", route.id, last), back, capacity=cap.seg_free[route.id, last], weight=0)
+        _capacity_edge(g, cap, ("stop", route.id, last), back, ("seg_free", (route.id, last)))
         g.add_edge(back, ("relay", route.depot_id), weight=p.hub_kop)
 
-    destinations = {o.pvz_id for o in orders if nodes[o.pvz_id].is_open}
     for route in city.routes:
         depot = ("relay", route.depot_id)
         if depot not in g or (route.id, -1) not in cap.next_seg_free:
@@ -155,18 +179,15 @@ def _add_hub_relay(
         previous = depot
         for k, stop in enumerate(route.stops):
             visit = ("tomorrow", route.id, k)
-            g.add_edge(previous, visit, capacity=cap.next_seg_free[route.id, k - 1], weight=0)
+            _capacity_edge(g, cap, previous, visit, ("next_seg_free", (route.id, k - 1)))
             previous = visit
-            if stop.node_id in destinations:
-                arrival_cost = lam(hours_at(DAY_MIN + stop.eta_min, p), p)
-                g.add_edge(visit, ("next_in", stop.node_id), weight=arrival_cost)
-
-    for order in orders:
-        arrival = ("next_in", order.pvz_id)
-        if arrival in g:
-            ready = ("next_ready", order.pvz_id)
-            g.add_edge(arrival, ready, capacity=cap.next_in_left[order.pvz_id], weight=0)
-            g.add_edge(ready, ("order", order.id), weight=0)
+            arrival_hours = hours_at(DAY_MIN + stop.eta_min, p)
+            for order in orders_by_pvz.get(stop.node_id, []):
+                if _meets_deadline(order, arrival_hours):
+                    _capacity_edge(
+                        g, cap, visit, ("order", order.id), ("next_in_left", stop.node_id),
+                        weight=lam(arrival_hours, p),
+                    )
 
 
 def build_graph(
@@ -199,18 +220,23 @@ def build_graph(
 
     order_qty = sum(o.qty for o in prob.orders)
     unique = is_unique_sku(prob.sku_id)
-    fallback = UNASSIGNED if unique else HUB
-    g.add_node(fallback, demand=-order_qty)
-    g.add_edge(fallback, KEEP, weight=0)
+    g.add_node(UNASSIGNED, demand=-order_qty)
+    g.add_edge(UNASSIGNED, KEEP, weight=0)
+    if not unique:
+        g.add_edge(UNASSIGNED, HUB, weight=0)
     g.add_node(KEEP, demand=total_supply)  # всё, что не ушло в заказы, остаётся лежать
 
     # --- заказы: свой ПВЗ, соседний, хаб
+    orders_by_pvz = defaultdict(list)
     for o in prob.orders:
         on = ("order", o.id)
         g.add_node(on, demand=o.qty)
-        if not unique:
+        if nodes[o.pvz_id].kind != NodeKind.PVZ or not is_open(o.pvz_id):
+            continue
+        orders_by_pvz[o.pvz_id].append(o)
+        if not unique and _meets_deadline(o, p.hub_hours):
             g.add_edge(HUB, on, weight=p.hub_kop + lam(p.hub_hours, p))
-        if not is_open(o.pvz_id):
+        if not _meets_deadline(o, p.own_hours):
             continue
         if prob.stock.get(o.pvz_id, 0) > 0:
             g.add_edge(("stock", o.pvz_id), on, weight=p.own_kop + lam(p.own_hours, p))
@@ -223,23 +249,29 @@ def build_graph(
                     g.add_edge(("stock", n_id), on, weight=w)
 
     # --- газели: посадка, проезд, пересадка, высадка
-    for r in routes:
+    for r in routes if total_supply else []:
         for k, s in enumerate(r.stops):
             here = ("stop", r.id, k)
             if k + 1 < len(r.stops):  # проезд к следующей остановке (и мимо закрытого ПВЗ)
-                g.add_edge(here, ("stop", r.id, k + 1), capacity=cap.seg_free[(r.id, k)], weight=0)
+                _capacity_edge(g, cap, here, ("stop", r.id, k + 1), ("seg_free", (r.id, k)))
             if not is_open(s.node_id):
                 continue  # в закрытом ПВЗ не садимся, не выходим и не пересаживаемся
             if prob.stock.get(s.node_id, 0) > 0:  # посадка
-                g.add_edge(
-                    ("stock", s.node_id),
-                    ("out", s.node_id),
-                    capacity=cap.out_left[s.node_id],
-                    weight=0,
+                _capacity_edge(
+                    g, cap, ("stock", s.node_id), ("out", s.node_id), ("out_left", s.node_id),
                 )
                 g.add_edge(("out", s.node_id), here, weight=p.move_kop)
-            # высадка: в ПВЗ, где ждут заказ или где дефицит
-            g.add_edge(here, ("in", s.node_id), weight=lam(hours_at(s.eta_min, p), p))
+            # Срок проверяется для каждого визита: ранний и поздний рейсы не смешиваются.
+            arrival_hours = hours_at(s.eta_min, p)
+            arrival_cost = lam(arrival_hours, p)
+            for order in orders_by_pvz.get(s.node_id, []):
+                if _meets_deadline(order, arrival_hours):
+                    _capacity_edge(
+                        g, cap, here, ("order", order.id), ("in_left", s.node_id),
+                        weight=p.own_kop + arrival_cost,
+                    )
+            if prob.target.get(s.node_id, 0) > 0:
+                g.add_edge(here, ("in", s.node_id), weight=arrival_cost)
             for r2 in routes:  # пересадка в другую газель в этом же ПВЗ
                 if r2.id == r.id:
                     continue
@@ -250,21 +282,18 @@ def build_graph(
     for node_id in {s.node_id for r in routes for s in r.stops}:
         if not is_open(node_id) or ("in", node_id) not in g:
             continue
-        g.add_edge(("in", node_id), ("in2", node_id), capacity=cap.in_left[node_id], weight=0)
-        for o in prob.orders:
-            if o.pvz_id == node_id:
-                g.add_edge(("in2", node_id), ("order", o.id), weight=p.own_kop)
-        shelf_units = int(cap.shelf_left_l.get(node_id, 0) // prob.volume_l)
-        if prob.target.get(node_id, 0) > 0 and shelf_units > 0:  # привезти под прогноз
-            g.add_edge(("in2", node_id), ("tgt", node_id), capacity=shelf_units, weight=0)
-    if unique:
-        if prob.orders:
-            _add_hub_relay(g, city, routes, nodes, cap, prob.orders)
-        # Сначала максимизируем доставку из реальных остатков, затем сравниваем стоимость.
-        weight_bound = sum(abs(edge["weight"]) for _, _, edge in g.edges(data=True))
-        penalty = weight_bound * (total_supply + order_qty) + 1
-        for order in prob.orders:
-            g.add_edge(UNASSIGNED, ("order", order.id), weight=penalty)
+        _capacity_edge(g, cap, ("in", node_id), ("in2", node_id), ("in_left", node_id))
+        _capacity_edge(
+            g, cap, ("in2", node_id), ("tgt", node_id), ("shelf_left_l", node_id),
+            units=Decimal(str(prob.volume_l)),
+        )
+    if unique and total_supply and orders_by_pvz:
+        _add_hub_relay(g, city, routes, nodes, cap, orders_by_pvz)
+    # Штраф больше разницы стоимости двух потоков: приоритет у числа исполненных единиц.
+    weight_bound = sum(abs(edge["weight"]) for _, _, edge in g.edges(data=True))
+    penalty = weight_bound * (total_supply + order_qty) + 1
+    for order in prob.orders:
+        g.add_edge(UNASSIGNED, ("order", order.id), weight=penalty)
     return g
 
 
@@ -339,13 +368,12 @@ class SkuResult:
     unassigned: dict[str, int]
 
 
-def solve_sku(
-    city: City, routes: list[VanRoute], nodes: dict[str, Node], cap: Capacity, prob: SkuProblem
+def decode_sku_flow(
+    city: City, routes: list[VanRoute], nodes: dict[str, Node], prob: SkuProblem,
+    g: nx.DiGraph, flow: dict,
 ) -> SkuResult:
-    """Шаг 3: поток минимальной стоимости по одному артикулу; списывает занятую ёмкость."""
+    """Раскладывает согласованный поток артикула на назначения и переброски."""
     p = city.params
-    g = build_graph(city, routes, nodes, cap, prob)
-    flow = nx.min_cost_flow(g)
     cost = nx.cost_of_flow(g, flow)
     by_route = {r.id: r for r in routes}
     orders = {o.id: o for o in prob.orders}
@@ -354,27 +382,26 @@ def solve_sku(
     unassigned: dict[str, int] = {}
 
     for path, qty in decompose(flow, g):
-        _consume(path, qty, cap)
         head, tail = path[0], path[-1]
         if head == UNASSIGNED:
-            if tail != KEEP:
+            if tail == KEEP:
+                continue
+            if path[1] != HUB:
                 unassigned[tail[1]] = qty
                 cost -= g[head][tail]["weight"] * qty
-            continue
-        if head == HUB:
-            if tail != KEEP:
-                o = orders[tail[1]]
-                assignments.append(
-                    Assignment(
-                        order_id=o.id,
-                        sku_id=prob.sku_id,
-                        qty=qty,
-                        variant=Variant.HUB,
-                        source_node=HUB,
-                        money_kop=p.hub_kop,
-                        hours=p.hub_hours,
-                    )
+                continue
+            o = orders[tail[1]]
+            assignments.append(
+                Assignment(
+                    order_id=o.id,
+                    sku_id=prob.sku_id,
+                    qty=qty,
+                    variant=Variant.HUB,
+                    source_node=HUB,
+                    money_kop=p.hub_kop,
+                    hours=p.hub_hours,
                 )
+            )
             continue
         source = head[1]
         uses_van = any(isinstance(n, tuple) and n[0] == "stop" for n in path)
@@ -398,7 +425,6 @@ def solve_sku(
         legs = legs_of(path, by_route)
         move_money = p.move_kop + p.transfer_kop * (len(legs) - 1)
         if tail == KEEP:
-            cap.shelf_left_l[legs[-1].to_node] -= qty * prob.volume_l  # заняли полку
             movements.append(
                 Movement(
                     sku_id=prob.sku_id,
@@ -427,22 +453,3 @@ def solve_sku(
                 )
             )
     return SkuResult(assignments, movements, cost, unassigned)
-
-
-def _consume(path: list, qty: int, cap: Capacity) -> None:
-    for a, b in zip(path, path[1:], strict=False):
-        if isinstance(a, tuple) and isinstance(b, tuple):
-            if a[0] == "stop" and b[0] == "stop" and a[1] == b[1]:
-                cap.seg_free[(a[1], a[2])] -= qty
-            elif a[0] == "stock" and b[0] == "out":
-                cap.out_left[a[1]] -= qty
-            elif a[0] == "in" and b[0] == "in2":
-                cap.in_left[a[1]] -= qty
-            elif a[0] == "stop" and b[0] == "return":
-                cap.seg_free[a[1], a[2]] -= qty
-            elif a[0] == "relay" and b[0] == "tomorrow":
-                cap.next_seg_free[b[1], -1] -= qty
-            elif a[0] == "tomorrow" and b[0] == "tomorrow":
-                cap.next_seg_free[a[1], a[2]] -= qty
-            elif a[0] == "next_in" and b[0] == "next_ready":
-                cap.next_in_left[a[1]] -= qty

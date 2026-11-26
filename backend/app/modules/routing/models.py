@@ -141,6 +141,8 @@ class City(BaseModel):
             errors.append("повторяются id артикулов")
         if len({o.id for o in self.orders}) != len(self.orders):
             errors.append("повторяются id заказов")
+        if len({r.id for r in self.routes}) != len(self.routes):
+            errors.append("повторяются id маршрутов")
         for r in self.routes:
             if r.depot_id not in nodes:
                 errors.append(f"маршрут {r.id}: нет депо {r.depot_id}")

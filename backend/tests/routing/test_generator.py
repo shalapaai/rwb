@@ -8,10 +8,13 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.modules.economics.params import kopecks, routing_params
+from app.modules.routing import generator
 from app.modules.routing.compare import compare
 from app.modules.routing.generator import _percentiles, generate_city
-from app.modules.routing.models import NodeKind
-from app.modules.routing.network import dist_km, travel_min
+from app.modules.routing.models import Forecast, NodeKind, Order
+from app.modules.routing.network import dist_km, hours_at, travel_min
+from tests.routing.test_routing import city
+from tests.routing.test_routing import route as make_route
 
 
 def test_seed_reproduces_all_city_inputs() -> None:
@@ -91,10 +94,36 @@ def test_robustness_api_runs_fixed_twenty_seeds_and_reports_cost_gaps() -> None:
         for row in report["runs"]
         if row["schemes"][2]["money_kop"] >= row["schemes"][1]["money_kop"]
     }
-    assert expected_gaps
     assert {
         row["seed"]: row["delta_kop"] for row in report["not_better_than_greedy"]
     } == expected_gaps
     for row in report["not_better_than_greedy"]:
         assert row["order_cost_delta_kop"] + row["detour_cost_kop"] == row["delta_kop"]
         assert row["reason"]
+
+
+def test_robustness_report_explains_when_forecast_increases_order_cost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    c = city(
+        [], [("A", 1)], [Order(id="o", sku_id="S", pvz_id="B")],
+        forecast=[Forecast(node_id="A", sku_id="S", daily_mean=1)],
+    )
+    arrive = 120
+    c.routes = [
+        make_route("R1", [("A", 60), ("T", 80)]),
+        make_route("R2", [("T", 80 + c.params.transfer_min_gap), ("B", arrive)]),
+    ]
+    c.params.hub_hours = hours_at(arrive, c.params)
+    c.params.max_new_stops = 0
+    monkeypatch.setattr(generator, "SEEDS", (0,))
+    monkeypatch.setattr(generator, "generate_city", lambda _: c)
+
+    report = generator.robustness_report()
+    (gap,) = report.not_better_than_greedy
+    van_cost = c.params.own_kop + c.params.move_kop + c.params.transfer_kop
+    assert gap.seed == 0
+    assert gap.delta_kop == gap.order_cost_delta_kop == c.params.hub_kop - van_cost > 0
+    assert gap.detour_cost_kop == gap.without_forecast_delta_kop == 0
+    assert (gap.greedy_hub_units, gap.nightly_hub_units) == (0, 1)
+    assert gap.reason

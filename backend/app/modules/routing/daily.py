@@ -285,10 +285,16 @@ def close_pvz(
         else:
             continue
         result[-1].penalty_kop = penalty_per_unit_kop * a.qty
-        result[-1].notifications = [
-            f"Покупателю: заказ {a.order_id} — {node_id} закрыт, срок {result[-1].extra_hours:+} ч",
-            f"Продавцу: заказ {a.order_id} перемаршрутизирован, {node_id} закрыт",
-        ]
+        reroute = result[-1]
+        if any(candidate.chosen for candidate in reroute.candidates):
+            reroute.notifications = [
+                f"Покупателю: заказ {a.order_id} — {node_id} закрыт, "
+                f"срок {reroute.extra_hours:+} ч",
+                f"Продавцу: заказ {a.order_id} перемаршрутизирован, {node_id} закрыт",
+            ]
+        else:
+            message = f"заказ {a.order_id} — {node_id} закрыт, доступного маршрута нет"
+            reroute.notifications = [f"Покупателю: {message}", f"Продавцу: {message}"]
     return result
 
 
@@ -384,13 +390,13 @@ def _replan(st: DayState, a: Assignment) -> RerouteDecision:
     st.stock[(a.source_node, a.sku_id)] = st.stock.get((a.source_node, a.sku_id), 0) + a.qty
     st.assignments.remove(a)
     order = Order(id=a.order_id, sku_id=a.sku_id, qty=a.qty, pvz_id=a.legs[-1].to_node)
-    d = choose(st, order)
-    new = d.assignment  # без обещанного срока хаб возможен всегда
+    decision = choose(st, order)
+    new = decision.assignment
     return RerouteDecision(
         order_id=a.order_id,
-        candidates=d.candidates,
-        extra_cost_kop=(new.money_kop - a.money_kop) * a.qty,
-        extra_hours=round(new.hours - a.hours, 2),
+        candidates=decision.candidates,
+        extra_cost_kop=(new.money_kop - a.money_kop) * a.qty if new else 0,
+        extra_hours=round(new.hours - a.hours, 2) if new else 0,
         penalty_kop=0,
         notifications=[],
     )

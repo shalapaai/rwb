@@ -3,19 +3,18 @@
 Шаги:
   1. граф «дешёвых» рёбер по завтрашним маршрутам газелей      — network.build_graph
   2. целевой запас по ПВЗ из прогноза (формула «газетчика»)       — targets()
-  3. поток минимальной стоимости по каждому артикулу             — network.solve_sku
+  3. потоки минимальной стоимости с общими ёмкостями              — allocation.allocate_flows
   4. правка маршрутов: вставить ПВЗ в рейс, только если окупается — insertion_options()
   5. повтор: вставленный заезд становится «бесплатным» для всех   — цикл в nightly_plan()
   6. выход: маршруты, назначения заказов, переброски, крюки
 
-Артикулы решаются по очереди (сначала самые востребованные), и каждый забирает
-свою часть мест в газелях. Это упрощение задачи о многопродуктовом потоке:
-точное решение — в плане развития (OR-Tools, ALNS).
+Потоки артикулов согласуются по местам в газелях, операциям ПВЗ и полкам.
 """
 
 import math
 from dataclasses import dataclass
 
+from app.modules.routing.allocation import allocate_flows
 from app.modules.routing.models import (
     Assignment,
     City,
@@ -32,9 +31,10 @@ from app.modules.routing.models import (
 from app.modules.routing.network import (
     Capacity,
     SkuProblem,
+    build_graph,
+    decode_sku_flow,
     dist_km,
     route_duration_min,
-    solve_sku,
     travel_min,
 )
 
@@ -68,13 +68,13 @@ class Evaluation:
     stock_after: dict[tuple[str, str], int]  # свободно на полках после плана
     incoming: dict[tuple[str, str], int]  # едет газелью под прогноз, на полку ещё не лёг
     unassigned: dict[str, int]
+    forecast_saving_kop: int
 
     @property
     def money_kop(self) -> int:
         return sum(a.money_kop * a.qty for a in self.assignments) + sum(
             m.money_kop * m.qty for m in self.movements
         )
-
 
 def evaluate(city: City, routes: list[VanRoute], nodes: dict[str, Node]) -> Evaluation:
     cap = Capacity.from_routes(routes, nodes, city.params, next_routes=city.routes)
@@ -95,16 +95,20 @@ def evaluate(city: City, routes: list[VanRoute], nodes: dict[str, Node]) -> Eval
     movements: list[Movement] = []
     unassigned: dict[str, int] = {}
     cost = 0
-    for sku_id in sku_order:
-        sku_stock = {n: q for (n, s), q in stock.items() if s == sku_id}
-        prob = SkuProblem(
+    problems = [
+        SkuProblem(
             sku_id=sku_id,
-            stock=sku_stock,
+            stock={n: q for (n, s), q in stock.items() if s == sku_id},
             orders=[o for o in city.orders if o.sku_id == sku_id],
             volume_l=volume[sku_id],
             target={n: t for (n, s), t in tgt.items() if s == sku_id},
         )
-        res = solve_sku(city, routes, nodes, cap, prob)
+        for sku_id in sku_order
+    ]
+    graphs = [build_graph(city, routes, nodes, cap, problem) for problem in problems]
+    flows = allocate_flows(graphs, cap)
+    for problem, graph, flow in zip(problems, graphs, flows, strict=True):
+        res = decode_sku_flow(city, routes, nodes, problem, graph, flow)
         assignments += res.assignments
         movements += res.movements
         unassigned.update(res.unassigned)
@@ -118,7 +122,14 @@ def evaluate(city: City, routes: list[VanRoute], nodes: dict[str, Node]) -> Eval
     for m in movements:
         stock_after[(m.from_node, m.sku_id)] -= m.qty
         incoming[(m.to_node, m.sku_id)] = incoming.get((m.to_node, m.sku_id), 0) + m.qty
-    return Evaluation(assignments, movements, cost, cap, stock_after, incoming, unassigned)
+    forecast_units = sum(
+        min(target, stock_after.get(key, 0) + incoming.get(key, 0))
+        for key, target in tgt.items() if target > 0
+    )
+    forecast_saving = forecast_units * max(city.params.rebalance_reward_kop, 0)
+    return Evaluation(
+        assignments, movements, cost, cap, stock_after, incoming, unassigned, forecast_saving
+    )
 
 
 # ---------------------------------------------------------------- шаг 4
@@ -133,7 +144,6 @@ class Insertion:
     added_km: float
     added_min: int
     cost_kop: int
-    is_repeat: bool = False
 
 
 def insertion_options(
@@ -146,6 +156,9 @@ def insertion_options(
     """
     p = city.params
     destinations = {o.pvz_id for o in city.orders}
+    useful = destinations | {s.node_id for s in city.stock if s.qty} | {
+        f.node_id for f in city.forecast
+    } | {s.node_id for r in routes for s in r.stops}
     options = []
     for r in routes:
         if sum(s.added for s in r.stops) >= p.max_new_stops:
@@ -158,11 +171,10 @@ def insertion_options(
         # когда газель уезжает из точки chain[pos]: из депо — в 0, с остановки — после стоянки
         depart = [0] + [s.eta_min + s.service_min for s in r.stops]
         for x in nodes.values():
-            if x.kind != NodeKind.PVZ or not x.is_open:
+            if x.id not in useful or x.kind != NodeKind.PVZ or not x.is_open:
                 continue
             previous = last_visit.get(x.id)
-            is_repeat = previous is not None
-            if is_repeat and (x.id not in destinations or x.id in added_nodes):
+            if previous is not None and (x.id not in destinations or x.id in added_nodes):
                 continue
             # Между визитами должна быть остановка, где можно забрать товар.
             first = 0 if previous is None else previous + 2
@@ -171,10 +183,7 @@ def insertion_options(
                 a, b = nodes[chain[pos]], nodes[chain[pos + 1]]
                 km = dist_km(a, x, p) + dist_km(x, b, p) - dist_km(a, b, p)
                 positions.append((km, pos))
-            if not is_repeat:
-                # Для нового ПВЗ сохраняем выбор кратчайшего крюка.
-                positions = [min(positions)]
-            for km, pos in positions:
+            for km, pos in sorted(positions):
                 a, b = nodes[chain[pos]], nodes[chain[pos + 1]]
                 to_x = travel_min(dist_km(a, x, p), p)
                 minutes = (
@@ -187,17 +196,11 @@ def insertion_options(
                     continue
                 cost = round(km * p.van_kop_per_km + minutes * p.van_kop_per_min)
                 eta = depart[pos] + to_x
-                if previous is not None:
-                    if eta <= r.stops[previous].eta_min:
-                        continue  # визиты в один ПВЗ должны различаться по времени
-                    if (
-                        pos < len(r.stops)
-                        and eta + p.stop_service_min > r.stops[pos].eta_min + minutes
-                    ):
-                        continue  # повторный визит не должен накладываться на следующую остановку
-                options.append(
-                    Insertion(r.id, x.id, pos, eta, round(km, 2), minutes, cost, is_repeat)
-                )
+                if previous is not None and eta <= r.stops[previous].eta_min:
+                    continue  # визиты в один ПВЗ должны различаться по времени
+                if pos < len(r.stops) and eta + p.stop_service_min > r.stops[pos].eta_min + minutes:
+                    continue  # обслуживание новой остановки не накладывается на следующую
+                options.append(Insertion(r.id, x.id, pos, eta, round(km, 2), minutes, cost))
     return options
 
 
@@ -237,19 +240,17 @@ def nightly_plan(city: City) -> tuple[Plan, Evaluation]:
 
     for _ in range(p.max_iterations):  # шаг 5: повторы
         best = None
-        current_money = current.money_kop
         waiting = sum(current.unassigned.values())
         for ins in insertion_options(city, routes, nodes, base_duration):
             trial_routes = apply_insertion(routes, ins, city)
             trial = evaluate(city, trial_routes, nodes)
             extra_delivered = waiting - sum(trial.unassigned.values())
             gain = current.cost - (trial.cost + ins.cost_kop)
-            # Для уникального товара сначала ищем рейс, стоимость сравниваем между рейсами.
-            if (
-                extra_delivered == 0
-                and ins.is_repeat
-                and trial.money_kop + ins.cost_kop >= current_money
-            ):
+            # Заезд окупают текущие заказы или дополнительная экономия от прогноза.
+            # Уже ожидаемые продажи учтены в целевой функции обоих планов.
+            future_gain = max(0, trial.forecast_saving_kop - current.forecast_saving_kop)
+            saving = current.money_kop - trial.money_kop - ins.cost_kop + future_gain
+            if extra_delivered == 0 and saving <= 0:
                 continue
             rank = (extra_delivered, gain)
             if rank > (0, 0) and (best is None or rank > best[0]):
