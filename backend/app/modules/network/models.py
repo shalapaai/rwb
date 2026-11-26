@@ -5,6 +5,7 @@
 """
 
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
 )
@@ -38,12 +40,28 @@ class Node(Base):
     y_km: Mapped[float] = mapped_column(Float)
     storage_total_l: Mapped[float] = mapped_column(Float, default=0.0)  # весь склад ПВЗ, литры
     mesh_share_pct: Mapped[int] = mapped_column(Integer, default=25)  # доля склада под mesh
+    pending_share_pct: Mapped[int | None] = mapped_column(Integer)
+    active_limit_l: Mapped[Decimal | None] = mapped_column(Numeric)
+    next_reduction_day: Mapped[date | None] = mapped_column(Date)
     is_open: Mapped[bool] = mapped_column(Boolean, default=True)
     ops_limit: Mapped[int] = mapped_column(Integer, default=60)  # mesh-операций в день
 
     @property
+    def planned_limit_l(self) -> float:
+        share = self.pending_share_pct or self.mesh_share_pct
+        return self.storage_total_l * share / 100
+
+    @property
+    def active_share_pct(self) -> float:
+        if self.active_limit_l is None or not self.storage_total_l:
+            return self.mesh_share_pct
+        return float(self.active_limit_l * 100 / Decimal(str(self.storage_total_l)))
+
+    @property
     def mesh_limit_l(self) -> float:
-        """Сколько литров ПВЗ отдал под mesh-полку."""
+        """Промежуточный лимит в литрах сохраняет точность при дробной доле склада."""
+        if self.active_limit_l is not None:
+            return float(self.active_limit_l)
         return self.storage_total_l * self.mesh_share_pct / 100
 
 

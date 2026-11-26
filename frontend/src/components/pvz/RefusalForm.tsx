@@ -3,8 +3,9 @@
  * Показывает решение API и сохраняет ключ, если ответ не дошёл.
  */
 
-import { useId, useState } from "react";
-import { pvzPath, usePvzMutation, type Refusal, type RefusalBody } from "./pvz-api";
+import { useState } from "react";
+import SkuPicker from "./SkuPicker";
+import { pvzPath, usePvzMutation, type Refusal, type RefusalBody, type Stock } from "./pvz-api";
 
 const grades = [
   { grade: "A", label: "Не вскрыт" },
@@ -15,15 +16,16 @@ const grades = [
 export default function RefusalForm({
   pvzId,
   isOpen,
-  knownSkus,
+  products,
+  units,
   onAccepted,
 }: {
   pvzId: string;
   isOpen: boolean;
-  knownSkus: string[];
+  products: Stock["products"];
+  units: Stock["units"];
   onAccepted: (result: Refusal) => void;
 }) {
-  const listId = useId();
   const [sku, setSku] = useState("");
   const [order, setOrder] = useState("");
   const action = usePvzMutation<Refusal>(pvzPath(pvzId, "refusals"), "POST", (result) => {
@@ -37,6 +39,7 @@ export default function RefusalForm({
   const orderId = order.trim() ? Number(order) : null;
   const validOrder = orderId === null || (Number.isSafeInteger(orderId) && orderId > 0);
   const canAccept = isOpen && !locked && Boolean(sku.trim()) && validOrder;
+  const queued = units.filter((unit) => unit.status === "awaiting_shelf");
 
   function accept(grade: RefusalBody["grade"]) {
     if (!canAccept) return;
@@ -50,14 +53,8 @@ export default function RefusalForm({
       {isOpen ? (
         <>
           <div className="pvz-fields">
-            <label>
-              Артикул товара
-              <input value={sku} list={listId} disabled={locked} autoComplete="off"
-                onChange={(event) => { setSku(event.target.value); action.clearFeedback(); }} />
-              <datalist id={listId}>
-                {knownSkus.map((code) => <option key={code} value={code} />)}
-              </datalist>
-            </label>
+            <SkuPicker value={sku} products={products} disabled={locked}
+              onChange={(value) => { setSku(value); action.clearFeedback(); }} />
             <label>
               Номер заказа <span className="pvz-muted">(необязательно)</span>
               <input type="number" min={1} step={1} value={order} disabled={locked}
@@ -77,11 +74,18 @@ export default function RefusalForm({
         </>
       ) : <p>ПВЗ закрыт. Приём отказов недоступен.</p>}
       {waiting && <p role="status">Принимаем отказ…</p>}
-      {state.status === "success" && (
+      {state.status === "success" && state.data.placement !== "queue" && (
         <div className={`pvz-result pvz-result--${state.data.placement}`} role="status">
-          <strong>{state.data.placement === "shelf" ? "На полку" : "В хаб"}</strong>
+          <strong>{({ shelf: "На полку", hub: "В хаб", return_queue: "Оформить возврат" })[state.data.placement]}</strong>
           <p>{state.data.reason}</p>
           <p>Штрихкод <span className="pvz-code">{state.data.barcode}</span></p>
+        </div>
+      )}
+      {queued.length > 0 && (
+        <div className="pvz-result pvz-result--queue" role="status">
+          <strong>Ожидает размещения{queued.length > 1 && ` · ${queued.length} шт.`}</strong>
+          <p>Разместите товар по заданию, когда освободится место.</p>
+          <p>Штрихкод <span className="pvz-code">{queued[0].barcode}</span></p>
         </div>
       )}
       {state.status === "error" && (

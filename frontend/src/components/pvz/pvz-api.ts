@@ -33,7 +33,7 @@ function errorInfo(error: unknown, fallback: string) {
   return { message, code: status, uncertain: !(status >= 400 && status < 500 && status !== 408) };
 }
 
-export function usePvzResource<T>(path: string, fallback: string) {
+export function usePvzResource<T>(path: string, fallback: string, refreshMs?: number) {
   const [revision, setRevision] = useState(0);
   const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>(
     { data: null, loading: true, error: null },
@@ -41,17 +41,22 @@ export function usePvzResource<T>(path: string, fallback: string) {
 
   useEffect(() => {
     const controller = new AbortController();
-    api<T>(path, "pvz_operator", { signal: controller.signal })
-      .then((data) => {
+    let timer: ReturnType<typeof setTimeout>;
+    async function load() {
+      try {
+        const data = await api<T>(path, "pvz_operator", { signal: controller.signal });
         if (!controller.signal.aborted) setState({ data, loading: false, error: null });
-      })
-      .catch((error: unknown) => {
+      } catch (error) {
         if (!controller.signal.aborted) {
           setState((current) => ({ ...current, loading: false, error: errorInfo(error, fallback).message }));
         }
-      });
-    return () => controller.abort();
-  }, [path, revision, fallback]);
+      } finally {
+        if (refreshMs && !controller.signal.aborted) timer = setTimeout(load, refreshMs);
+      }
+    }
+    void load();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [path, revision, fallback, refreshMs]);
 
   function reload() {
     setState((current) => ({ ...current, loading: true, error: null }));

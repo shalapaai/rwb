@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import current_role
 from app.core.db import get_session
-from app.modules.inventory.models import Product, Unit
+from app.modules.inventory.models import ON_SHELF, Product, Unit
 from app.modules.network.models import Node, VanStop
 from app.modules.network.models import VanRoute as DbVanRoute
 from app.modules.network.schemas import NetworkNode, NetworkResponse
@@ -27,7 +27,7 @@ def get_network(session: Annotated[Session, Depends(get_session)]) -> NetworkRes
     stock = (
         select(Unit.node_id, func.sum(Product.volume_l).label("used_l"))
         .join(Product, Product.sku == Unit.sku)
-        .where(Unit.status.in_(("on_shelf", "reserved")))
+        .where(Unit.status.in_(ON_SHELF))
         .group_by(Unit.node_id)
         .subquery()
     )
@@ -66,7 +66,7 @@ def get_network(session: Annotated[Session, Depends(get_session)]) -> NetworkRes
                 y_km=node.y_km,
                 is_open=node.is_open,
                 storage_total_l=node.storage_total_l,
-                mesh_share_pct=node.mesh_share_pct,
+                mesh_share_pct=node.active_share_pct,
                 ops_limit=node.ops_limit,
                 shelf_used_l=used_l,
                 shelf_limit_l=node.mesh_limit_l if node.kind == NodeKind.PVZ else 0,

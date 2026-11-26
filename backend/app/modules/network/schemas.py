@@ -16,7 +16,7 @@ class NetworkNode(BaseModel):
     y_km: float
     is_open: bool
     storage_total_l: float
-    mesh_share_pct: int
+    mesh_share_pct: float
     ops_limit: int
     shelf_used_l: float
     shelf_limit_l: float

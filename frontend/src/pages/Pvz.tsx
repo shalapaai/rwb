@@ -1,27 +1,54 @@
 import { useState } from "react";
 import RefusalForm from "../components/pvz/RefusalForm";
-import { ShelfSettings, ShelfUnits } from "../components/pvz/Shelf";
+import { ShelfSettings, ShelfUnits, TodayWriteOffs } from "../components/pvz/Shelf";
 import Tasks, { type TaskQueues } from "../components/pvz/Tasks";
-import { pvzPath, usePvzResource, type Network, type Stock } from "../components/pvz/pvz-api";
+import { pvzPath, usePvzMutation, usePvzResource, type Network, type Stock } from "../components/pvz/pvz-api";
 import "../components/pvz/pvz.css";
 
+const refreshMs = 10_000;
+const dayFormat = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+});
+
 function PvzDesk({ pvz }: { pvz: Network["nodes"][number] }) {
-  const stock = usePvzResource<Stock>(pvzPath(pvz.id, "stock"), "Не удалось загрузить полку.");
-  const tasks = usePvzResource<TaskQueues>(pvzPath(pvz.id, "tasks"), "Не удалось загрузить задания.");
+  const stock = usePvzResource<Stock>(pvzPath(pvz.id, "stock"), "Не удалось загрузить полку.", refreshMs);
+  const tasks = usePvzResource<TaskQueues>(pvzPath(pvz.id, "tasks"), "Не удалось загрузить задания.", refreshMs);
   const [recentUnit, setRecentUnit] = useState<number | null>(null);
+  const [savingShare, setSavingShare] = useState(false);
   const shelf = stock.data;
-  const knownSkus = [...new Set(shelf?.units.map((unit) => unit.sku))].sort();
+  function refreshDesk() {
+    stock.reload();
+    tasks.reload();
+  }
+  const clock = usePvzMutation("/sim/clock/next", "POST", refreshDesk, refreshDesk);
+  const advancing = clock.state.status === "pending";
+  const retryClock = clock.state.status === "error" && clock.state.uncertain;
 
   return (
     <div className="pvz-desk">
+      <section className="pvz-card pvz-clock" aria-label="День стенда">
+        <div>
+          <strong aria-live="polite">
+            День стенда{shelf && (
+              <> · <time dateTime={shelf.simulation_day}>{dayFormat.format(new Date(shelf.simulation_day))}</time></>
+            )}
+          </strong>
+          <p className="pvz-muted">Переход запускает утренний расчёт для всех ПВЗ.</p>
+        </div>
+        <button type="button" disabled={!shelf || stock.loading || savingShare || advancing}
+          onClick={() => retryClock ? clock.retry() : clock.submit({ expected_day: shelf?.simulation_day })}>
+          {advancing ? "Переводим день…" : retryClock ? "Повторить запрос" : "Следующий день →"}
+        </button>
+        {clock.state.status === "error" && <p className="pvz-field-error" role="alert">{clock.state.message}</p>}
+      </section>
       <div className="pvz-cards">
-        <RefusalForm pvzId={pvz.id} isOpen={pvz.is_open} knownSkus={knownSkus}
+        <RefusalForm pvzId={pvz.id} isOpen={pvz.is_open} products={shelf?.products ?? []} units={shelf?.units ?? []}
           onAccepted={(result) => {
-            setRecentUnit(result.placement === "shelf" ? result.unit_id : null);
-            stock.reload();
-            tasks.reload();
+            setRecentUnit(result.placement === "hub" ? null : result.unit_id);
+            refreshDesk();
           }} />
-        {shelf && <ShelfSettings stock={shelf} refreshing={stock.loading} onSaved={stock.reload} />}
+        {shelf && <ShelfSettings stock={shelf} refreshing={stock.loading || advancing}
+          onSaved={refreshDesk} onSavingChange={setSavingShare} />}
         {!shelf && stock.loading && (
           <div className="pvz-card" role="status">Загружаем данные mesh-полки…</div>
         )}
@@ -34,6 +61,7 @@ function PvzDesk({ pvz }: { pvz: Network["nodes"][number] }) {
       )}
       <Tasks tasks={tasks} onChanged={stock.reload} />
       {shelf && <ShelfUnits stock={shelf} recentUnit={recentUnit} />}
+      {shelf && <TodayWriteOffs items={shelf.writeoffs_today} />}
     </div>
   );
 }

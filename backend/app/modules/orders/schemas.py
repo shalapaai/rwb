@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.modules.inventory.schemas import ReductionSummary, ShelfTask
+
 
 class OrderIn(BaseModel):
     sku_id: str
@@ -50,7 +52,9 @@ class TaskRow(BaseModel):
 
 
 class TasksOut(BaseModel):
+    reduction: ReductionSummary | None = None
     pvz_id: str
+    shelf: list[ShelfTask]
     to_pick: list[TaskRow]
     to_load: list[TaskRow]
     to_receive: list[TaskRow]
