@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import system
 from app.core.config import get_settings
 from app.core.logging import setup_logging
+from app.modules import all_models  # noqa: F401  — все таблицы в метаданных
 from app.modules.analytics.router import router as analytics_router
 from app.modules.economics.router import router as economics_router
 from app.modules.inventory.router import router as inventory_router
