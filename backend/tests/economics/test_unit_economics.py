@@ -51,9 +51,9 @@ def test_no_demand_charges_full_shelf_period_then_hub():
     result = response.json()
     assert Decimal(str(result["sale_probability"])) == 0
     assert Decimal(str(result["expected_days"])) == 7
-    assert result["base"]["total_kop"] == 3700 + 6040
+    assert result["base"]["total_kop"] == 3700 + 4660
     # 3 минуты по 330 ₽/ч и 2 л × 7 суток по 10 коп. реальных затрат.
-    assert result["mesh"]["total_kop"] == 9740 + 1650 + 140
+    assert result["mesh"]["total_kop"] == 3700 + 4660 + 1650 + 140
     assert result["storage_payment_kop"] == 2 * 7 * 15
     assert result["effect_after_storage_fee_kop"] == -1650 - 2 * 7 * 15
     assert result["distribution"] == {"pvz_kop": 400, "seller_kop": 0, "mp_kop": -2190}
@@ -87,11 +87,11 @@ def test_team_defaults_and_routing_prices():
     result = client.get(MODEL, headers=HEADERS, params={"grade": "B", "demand_per_day": 0}).json()
     assert (result["shelf_days"], result["repack_payer"]) == (14, "mp")
     # Пакет, две минуты на упаковку, 14 суток хранения и полный маршрут через хаб.
-    assert result["mesh"]["total_kop"] == 9740 + 1650 + 306 + 1100 + 280
+    assert result["mesh"]["total_kop"] == 3700 + 4660 + 1650 + 306 + 1100 + 280
     assert Decimal(result["local_delivery_min"]) == pytest.approx(Decimal(3 * 30 + 14 * 720) / 17)
     assert result["hub_delivery_min"] == 2160
     routing = routing_params()
-    assert (routing.hub_kop, routing.own_kop, routing.move_kop) == (6040, 925, 813)
+    assert (routing.hub_kop, routing.own_kop, routing.move_kop) == (4660, 925, 813)
 
 
 def test_operation_fees_follow_labour_and_reimburse_materials_at_cost():

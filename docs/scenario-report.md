@@ -51,8 +51,8 @@
 | mesh | pvz:ПВЗ-B | 45,82 ₽ |
 | mesh | seller:S-01 | 1 148,00 ₽ |
 | base | ext:buyer | -1 500,00 ₽ |
-| base | ext:hub_ops | 97,40 ₽ |
-| base | mp | 217,60 ₽ |
+| base | ext:hub_ops | 83,60 ₽ |
+| base | mp | 231,40 ₽ |
 | base | pvz:ПВЗ-B | 45,00 ₽ |
 | base | seller:S-01 | 1 140,00 ₽ |
 
@@ -85,13 +85,13 @@
 | Схема | Счёт | Итог |
 | --- | --- | ---: |
 | mesh | ext:buyer | -1 500,00 ₽ |
-| mesh | ext:hub_ops | 60,40 ₽ |
-| mesh | mp | 254,60 ₽ |
+| mesh | ext:hub_ops | 46,60 ₽ |
+| mesh | mp | 268,40 ₽ |
 | mesh | pvz:ПВЗ-B | 45,00 ₽ |
 | mesh | seller:S-01 | 1 140,00 ₽ |
 | base | ext:buyer | -1 500,00 ₽ |
-| base | ext:hub_ops | 60,40 ₽ |
-| base | mp | 254,60 ₽ |
+| base | ext:hub_ops | 46,60 ₽ |
+| base | mp | 268,40 ₽ |
 | base | pvz:ПВЗ-B | 45,00 ₽ |
 | base | seller:S-01 | 1 140,00 ₽ |
 
@@ -137,8 +137,8 @@
 | mesh | pvz:ПВЗ-A | 5,85 ₽ |
 | mesh | pvz:ПВЗ-B | 49,12 ₽ |
 | base | ext:buyer | -1 500,00 ₽ |
-| base | ext:hub_ops | 97,40 ₽ |
-| base | mp | 217,60 ₽ |
+| base | ext:hub_ops | 83,60 ₽ |
+| base | mp | 231,40 ₽ |
 | base | pvz:ПВЗ-B | 45,00 ₽ |
 | base | seller:S-01 | 1 140,00 ₽ |
 
@@ -190,8 +190,8 @@
 | mesh | pvz:ПВЗ-C | 45,82 ₽ |
 | mesh | seller:S-01 | 1 148,00 ₽ |
 | base | ext:buyer | -1 500,00 ₽ |
-| base | ext:hub_ops | 97,40 ₽ |
-| base | mp | 217,60 ₽ |
+| base | ext:hub_ops | 83,60 ₽ |
+| base | mp | 231,40 ₽ |
 | base | pvz:ПВЗ-B | 45,00 ₽ |
 | base | seller:S-01 | 1 140,00 ₽ |
 
@@ -257,7 +257,7 @@
 | Шаг | Результат |
 | --- | --- |
 | ПВЗ-A: отказ хита SKU-001, оценка A | placement: shelf; reason: не вскрыт, на полку |
-| ПВЗ-A: отказ SKU-041 (Мерный стакан), 0 продаж за 30 дней | placement: hub; reason: спрос 0/сут ниже порога 0,036/сут — mesh дороже хаба |
+| ПВЗ-A: отказ SKU-041 (Мерный стакан), 0 продаж за 30 дней | placement: hub; reason: спрос 0/сут ниже порога 0,045/сут — mesh дороже хаба |
 | ПВЗ-A: отказ SKU-009, маркированная категория, оценка A | placement: hub; reason: категория запрещена: Маркировка «Честный знак» |
 
 **Проверки**
