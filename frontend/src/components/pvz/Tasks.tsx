@@ -69,6 +69,7 @@ export default function Tasks({ tasks, onChanged }: {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const queues = tasks.data;
   const items = queues ? steps.flatMap((step) => queues[step.queue].map((task) => ({ task, step }))) : [];
+  const scrollable = (queues?.shelf.length ?? 0) + items.length > 3;
 
   function onFeedback(result: Feedback) {
     setFeedback(result);
@@ -99,7 +100,8 @@ export default function Tasks({ tasks, onChanged }: {
       {!queues && tasks.loading && <p role="status">Загружаем задания…</p>}
       {queues && !queues.shelf.length && !items.length && <p className="pvz-muted">Нет активных заданий.</p>}
       {queues && (queues.shelf.length > 0 || items.length > 0) && (
-        <ul className="pvz-task-list">
+        <ul className={`pvz-task-list${scrollable ? " pvz-task-list--scroll" : ""}`}
+          aria-labelledby="pvz-tasks-title" tabIndex={scrollable ? 0 : undefined}>
           {queues.shelf.map((task, index) => {
             const shelve = task.action === "shelve";
             const label = { remove: "Снять для возврата", return: "Оформить возврат", reduce: "Отправить в хаб", shelve: "Поставить на полку" }[task.action];
