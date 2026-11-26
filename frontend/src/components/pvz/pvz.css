@@ -448,6 +448,12 @@
   list-style: none;
 }
 
+.pvz-task-list--scroll {
+  max-height: 11.25rem;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
 .pvz-task {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

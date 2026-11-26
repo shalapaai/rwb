@@ -170,6 +170,35 @@ def test_full_shelf_queues_fifo_and_reuses_tasks(client, db, pvz):
     assert unbalanced_txn_ids(db) == []
 
 
+def test_placements_share_free_space_and_can_be_completed_in_any_order(client, db, pvz):
+    db.add_all([
+        Product(sku="T-BIG", seller_id="T-S1", volume_l=3, price_kop=100),
+        Product(sku="T-SMALL", seller_id="T-S1", volume_l=1, price_kop=100),
+    ])
+    db.flush()
+    for key in ("shelf-1", "shelf-2"):
+        refuse(client, "A", key)
+    refuse(client, "A", "big", sku="T-BIG")
+    small = [refuse(client, "A", f"small-{i}", sku="T-SMALL").json() for i in range(3)]
+
+    def placements():
+        return [t for t in shelf_tasks(client, pvz) if t["action"] == "shelve"]
+
+    assert not placements()
+    assert complete(client, pvz, shelf_tasks(client, pvz)[0], "free-two").status_code == 200
+    # Свободно 2 л. Коробка на 3 л ждёт, место получают две первые коробки по 1 л.
+    first, second = placements()
+    assert [first["unit_id"], second["unit_id"]] == [r["unit_id"] for r in small[:2]]
+    last = {"unit_id": small[2]["unit_id"], "action": "shelve", "version": 1}
+    assert complete(client, pvz, last, "no-room-for-third").status_code == 409
+    assert complete(client, pvz, second, "place-second").status_code == 200
+    assert placements() == [first]
+    assert complete(client, pvz, first, "place-first").status_code == 200
+    assert not placements()
+    stock = client.get(f"/pvz/{pvz}/stock", headers=OP).json()
+    assert stock["used_l"] == stock["limit_l"] == 4
+
+
 def test_multiple_removals_release_actual_litres(client, db, pvz):
     a, b = [refuse(client, "A", key).json()["unit_id"] for key in ("a", "b")]
     db.add(Product(sku="T-BOX", seller_id="T-S1", volume_l=3.5, price_kop=100))

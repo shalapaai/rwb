@@ -36,6 +36,7 @@ from app.modules.inventory.shelf_queue import (
     estimated_days,
     fits,
     plan_removals,
+    ready_to_shelve,
     reduction_plan,
     used_l,
     waiting_head,
@@ -332,10 +333,7 @@ def complete_shelf_task(
         if cost:
             post(session, "mesh", "cost", None, [("mp", -cost), ("ext:hub_ops", cost)], key=key)
     else:
-        head = waiting_head(session, pvz_id)
-        if head is None or head[0].id != unit_id:
-            raise HTTPException(409, "Сначала разместите первый товар в очереди")
-        if not fits(used_l(session, pvz_id), head.volume_l, node.mesh_limit_l):
+        if not any(ready.id == unit_id for ready, _ in ready_to_shelve(session, node)):
             raise HTTPException(409, "Для размещения ещё недостаточно свободного места")
         unit.status, unit.shelved_at = "on_shelf", now
     session.flush()
