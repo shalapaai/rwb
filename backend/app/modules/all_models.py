@@ -6,6 +6,7 @@ Alembic (migrations/env.py) и тесты. Новый модуль с табли
 """
 
 from app.modules.analytics import models as analytics  # noqa: F401
+from app.modules.catalog import models as catalog  # noqa: F401
 from app.modules.economics import models as economics  # noqa: F401
 from app.modules.inventory import models as inventory  # noqa: F401
 from app.modules.ledger import models as ledger  # noqa: F401
