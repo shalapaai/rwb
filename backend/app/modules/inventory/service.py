@@ -121,11 +121,23 @@ def accept_refusal(
     txn_ids = []
     for op, fee, costs in ops:
         # ключи проводок выводятся из ключа запроса — повтор их тоже не задвоит
-        paid = post(session, "mesh", "tariff", order_id, [("mp", -fee), (pvz, fee)],
-                    key=f"refusal:{key}:{op}:tariff")  # fmt: skip
+        paid = post(
+            session,
+            "mesh",
+            "tariff",
+            order_id,
+            [("mp", -fee), (pvz, fee)],
+            key=f"refusal:{key}:{op}:tariff",
+        )
         spent = sum(amount for _, amount in costs)
-        cost = post(session, "mesh", "cost", order_id, [(pvz, -spent), *costs],
-                    key=f"refusal:{key}:{op}:cost")  # fmt: skip
+        cost = post(
+            session,
+            "mesh",
+            "cost",
+            order_id,
+            [(pvz, -spent), *costs],
+            key=f"refusal:{key}:{op}:cost",
+        )
         txn_ids += [paid.id, cost.id]
 
     return {
