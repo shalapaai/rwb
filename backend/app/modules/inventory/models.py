@@ -34,6 +34,7 @@ PENDING = ("awaiting_shelf", "awaiting_return")  # приняты, физиче�
 UNIT_STATUSES = (*ON_SHELF, *PENDING, "in_transit", "ready", "issued", "to_hub", "at_hub")
 GRADES = ("A", "B", "C")
 MAX_MESH_UNIT_L = 10
+UNIT_SOURCES = ("refusal", "hub", "seller")  # отказ / пополнение из хаба / поставка продавца
 RETURN_KINDS = ("refusal", "return")  # отказ при получении / возврат после покупки
 RETURN_DECISIONS = ("shelf", "repack", "hub")
 
@@ -70,6 +71,7 @@ class Unit(Base):
     __table_args__ = (
         CheckConstraint(f"status IN {UNIT_STATUSES}", name="status_valid"),
         CheckConstraint(f"grade IS NULL OR grade IN {GRADES}", name="grade_valid"),
+        CheckConstraint(f"source IN {UNIT_SOURCES}", name="source_valid"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -79,6 +81,8 @@ class Unit(Base):
     node_id: Mapped[str | None] = mapped_column(ForeignKey("nodes.id"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="on_shelf", index=True)
     grade: Mapped[str | None] = mapped_column(String(1))  # оценка сотрудника при отказе
+    # refusal — отказ при получении; hub — из хаба под спрос ПВЗ; seller — поставка продавца (HB1)
+    source: Mapped[str] = mapped_column(String(8), default="refusal", server_default="refusal")
     # когда легла на полку: очередь FIFO и срок 14 дней
     shelved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reduction_on: Mapped[date | None] = mapped_column(Date)  # дата назначения возврата

@@ -4,12 +4,13 @@ from hashlib import sha256
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.auth import Role, require_roles
 from app.core.db import get_session
 from app.core.idempotency import IdemKey, run_once
-from app.modules.inventory import service
+from app.modules.inventory import restock, service, supply
 from app.modules.inventory.schemas import (
     RefusalIn,
     RefusalOut,
@@ -24,6 +25,15 @@ router = APIRouter(prefix="/pvz", tags=["inventory"])
 
 Operator = Annotated[Role, Depends(require_roles(Role.PVZ_OPERATOR, Role.ADMIN))]
 AnyRole = Annotated[Role, Depends(require_roles(*Role))]
+Supply = Annotated[Role, Depends(require_roles(Role.PVZ_OPERATOR, Role.LOGIST, Role.ADMIN))]
+Dropoff = Annotated[
+    Role, Depends(require_roles(Role.PVZ_OPERATOR, Role.SELLER, Role.LOGIST, Role.ADMIN))
+]
+
+
+class SupplyIn(BaseModel):
+    sku_id: str
+    qty: int = Field(ge=1, le=500)
 Db = Annotated[Session, Depends(get_session)]
 
 
@@ -78,6 +88,34 @@ def shelf_action(
         f"shelf:{unit_id}:{action}:{pvz_id}",
         sha256(key.encode()).hexdigest(),  # область и ключ вместе должны помещаться в 128 символов
         lambda: service.complete_shelf_task(db, pvz_id, unit_id, action, body.version),
+    )
+    db.commit()
+    return result
+
+
+@router.get("/{pvz_id}/restock-plan")
+def restock_plan(pvz_id: str, _: AnyRole, db: Db) -> dict:
+    """Что привезти из хаба на полку: популярные в этом ПВЗ товары, штуки и почему (HB1)."""
+    return restock.plan(db, pvz_id)
+
+
+@router.post("/{pvz_id}/restock")
+def restock_from_hub(pvz_id: str, key: IdemKey, _: Supply, db: Db) -> dict:
+    """Привезти из хаба по плану: единицы ложатся на полку, проводки mesh (HB1)."""
+    result = run_once(db, f"restock:{pvz_id}", key, lambda: restock.restock(db, pvz_id, key))
+    db.commit()
+    return result
+
+
+@router.post("/{node_id}/supply")
+def seller_supply(node_id: str, body: SupplyIn, key: IdemKey, _: Dropoff, db: Db) -> dict:
+    """Продавец сдал партию в ПВЗ или в хаб (node_id = HUB): система решает по каждой штуке —
+    полка этого ПВЗ, газелью в ПВЗ, где не хватает, или хаб (HB1)."""
+    result = run_once(
+        db,
+        f"supply:{node_id}",
+        key,
+        lambda: supply.dropoff(db, node_id, body.sku_id, body.qty, key),
     )
     db.commit()
     return result

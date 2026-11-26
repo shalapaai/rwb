@@ -21,6 +21,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.modules.economics.params import DEFAULTS as P
 from app.modules.economics.params import kopecks, routing_params
+from app.modules.inventory import restock
 from app.modules.inventory.models import Product, Return, Unit
 from app.modules.inventory.service import post_storage, sim_now, used_l
 from app.modules.inventory.shelf_queue import (
@@ -210,7 +211,12 @@ def create_order(
     else:
         _reserve(session, order, a.source_node, qty)
         order.status = "reserved"
-    _post_base(session, order, product, local=a.variant != rm.Variant.HUB)
+    local = a.variant != rm.Variant.HUB
+    # Единица, привезённая из хаба заранее (HB1), в базовой схеме не была бы отказом:
+    # возврата в хаб там нет, только обычный заказ из хаба.
+    reserved = session.scalars(select(Reservation.unit_id).where(Reservation.order_id == order.id))
+    refusal = local and not restock.hub_supplied(session, list(reserved))
+    _post_base(session, order, product, local=refusal)
     session.flush()
     return order
 
@@ -237,7 +243,10 @@ def _reserve(session: Session, order: Order, node_id: str, qty: int) -> None:
 
 
 def _post_base(session: Session, order: Order, product: Product, local: bool) -> None:
-    """Теневые проводки: тот же заказ в базовой схеме через хаб."""
+    """Теневые проводки: тот же заказ в базовой схеме через хаб.
+
+    local — заказ закрыт местным отказом: в базе этот отказ ещё ехал бы в хаб.
+    """
     k = f"order:{order.id}:base"
     hub_cost = P.hub_order_kop + (P.hub_return_kop if local else 0)  # отказ ехал бы в хаб
     legs = [("mp", -hub_cost), ("ext:hub_ops", hub_cost)]

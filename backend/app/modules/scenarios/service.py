@@ -1,4 +1,4 @@
-"""Шесть сценариев защиты одной кнопкой (docs/04): шаги и снимок «до / после».
+"""Восемь сценариев защиты одной кнопкой (docs/04): шаги и снимок «до / после».
 
 Каждый шаг вызывает тот же сервис, что и API (приём отказа, заказ, действия ПВЗ,
 закрытие ПВЗ, тестовые часы), — никаких отдельных «демо-путей». До и после
@@ -19,6 +19,7 @@ from app.modules import all_models  # noqa: F401 — все таблицы, чт
 from app.modules.catalog import service as catalog
 from app.modules.catalog.models import Category
 from app.modules.economics.params import DEFAULTS as P
+from app.modules.inventory import restock, supply
 from app.modules.inventory import service as inventory
 from app.modules.inventory.models import Product, Unit
 from app.modules.ledger.models import LedgerEntry, LedgerTxn
@@ -38,6 +39,8 @@ TITLES = {
     4: "ПВЗ-B закрылся, пока товар в газели G1",
     5: "Отказ без спроса: уведомление на 7-й день, решение на 14-й",
     6: "Непопулярный или маркированный отказ → хаб, хит → полка",
+    7: "Хаб пополняет полку ПВЗ-C хитами этой точки → заказ выдан со своей полки",
+    8: "Продавец сдал партию в ПВЗ-A и в хаб → система раскладывает: полка, газель, хаб",
 }
 
 
@@ -300,6 +303,70 @@ def _scenario_6(r: Run) -> None:
     )
 
 
+def _scenario_7(r: Run) -> None:
+    res = r.step(
+        "Хаб: пополнить полку ПВЗ-C тем, что часто покупают именно там",
+        lambda: restock.restock(r.s, C, _key()),
+    )
+    r.check("из хаба привезли популярные для ПВЗ-C товары", res["delivered"] > 0)
+    r.steps[-1]["result"] = {
+        "delivered": res["delivered"],
+        "reason": "; ".join(f"{i['sku']} × {i['qty']}" for i in res["items"]),
+    }
+    sku = res["items"][0]["sku"] if res["items"] else "SKU-001"
+    order = r.step(
+        f"Покупатель заказал {sku} в ПВЗ-C", lambda: orders.create_order(r.s, sku, C, False)
+    )
+    r.check("заказ закрыт со своей полки ПВЗ-C", (order.variant, order.source_node) == ("own", C))
+    base = r.s.scalar(
+        select(func.sum(LedgerEntry.amount_kop))
+        .join(LedgerTxn, LedgerTxn.id == LedgerEntry.txn_id)
+        .where(
+            LedgerTxn.order_id == order.id,
+            LedgerTxn.scheme == "base",
+            LedgerEntry.account == "ext:hub_ops",
+        )
+    )
+    r.check("в базе — обычный заказ из хаба, без возврата отказа", base == P.hub_order_kop)
+    order = r.order_steps(order, ["pick", "issue"])
+    r.check("заказ выдан", order.status == "issued")
+
+
+def _split(res: dict) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for p in res["plan"]:
+        out[p["how"]] = out.get(p["how"], 0) + p["qty"]
+    return out
+
+
+def _brief_supply(res: dict) -> dict:
+    return {"reason": "; ".join(f"{p['qty']} шт. → {p['to']} ({p['reason']})" for p in res["plan"])}
+
+
+def _scenario_8(r: Run) -> None:
+    pvz = r.step(
+        "Продавец S-03 принёс в ПВЗ-A 20 шт. SKU-011 (Венчик)",
+        lambda: supply.dropoff(r.s, A, "SKU-011", 20, _key()),
+    )
+    r.steps[-1]["result"] = _brief_supply(pvz)
+    got = _split(pvz)
+    r.check("вся партия разложена", sum(got.values()) == 20)
+    r.check("часть легла на полку ПВЗ-A — здесь её покупают", got.get("shelf", 0) > 0)
+    r.check("часть уехала попутной газелью в ПВЗ, где не хватает", got.get("van", 0) > 0)
+    hub = r.step(
+        "Продавец S-01 сдал в хаб 30 шт. SKU-003 (Бутылка для воды)",
+        lambda: supply.dropoff(r.s, "HUB", "SKU-003", 30, _key()),
+    )
+    r.steps[-1]["result"] = _brief_supply(hub)
+    r.check("из хаба часть уехала на полки ПВЗ, где её берут", _split(hub).get("hub_van", 0) > 0)
+    shoe = r.step(
+        "Продавец принёс в ПВЗ-A 5 пар кед (маркировка)",
+        lambda: supply.dropoff(r.s, A, "SKU-009", 5, _key()),
+    )
+    r.steps[-1]["result"] = _brief_supply(shoe)
+    r.check("маркированный товар целиком в хаб", _split(shoe) == {"hub": 5})
+
+
 SCENARIOS = {
     1: _scenario_1,
     2: _scenario_2,
@@ -307,12 +374,14 @@ SCENARIOS = {
     4: _scenario_4,
     5: _scenario_5,
     6: _scenario_6,
+    7: _scenario_7,
+    8: _scenario_8,
 }
 
 
 def run(session: Session, n: int) -> dict:
     if n not in SCENARIOS:
-        raise HTTPException(404, f"Нет сценария {n}: доступны 1–6")
+        raise HTTPException(404, f"Нет сценария {n}: доступны 1–8")
     before = snapshot(session)
     r = Run(session)
     SCENARIOS[n](r)
