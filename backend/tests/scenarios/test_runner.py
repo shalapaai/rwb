@@ -136,6 +136,7 @@ def test_all_five_scenarios_and_report(client, db):
 
 
 def test_reset_gives_clean_seeded_city(client, db):
+    post(client, "/scenarios/reset")
     post(client, "/scenarios/1/run")
     state = post(client, "/scenarios/reset")
     assert state["orders"] == {} and state["closed_pvz"] == []
