@@ -225,3 +225,380 @@
   font: inherit;
   cursor: pointer;
 }
+
+.night-plan {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.night-plan-steps,
+.night-plan-order-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.night-plan-steps button,
+.night-plan-order-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dcd3e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #382d49;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.night-plan-steps button {
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.night-plan-order-list button {
+  min-height: 36px;
+  padding: 5px 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.night-plan-steps button:hover,
+.night-plan-order-list button:hover {
+  border-color: #ac91d4;
+}
+
+.night-plan-steps button[aria-current="step"],
+.night-plan-order-list button[aria-pressed="true"] {
+  border-color: #8555d2;
+  background: #efe7fb;
+  color: #4a2287;
+}
+
+.night-plan button:focus-visible {
+  outline: 2px solid #6b2bd9;
+  outline-offset: 2px;
+}
+
+.night-plan-steps button span {
+  color: #755b93;
+  font-variant-numeric: tabular-nums;
+}
+
+.night-plan-order-list button span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.night-plan-panel {
+  min-width: 0;
+  padding: 16px 20px;
+  border: 1px solid #e2ddec;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.night-plan-panel h2,
+.night-plan-panel h3,
+.night-plan-panel h4 {
+  margin: 0 0 8px;
+}
+
+.night-plan-panel h2 { font-size: 17px; }
+.night-plan-panel h3 { font-size: 15px; }
+
+.night-plan-panel p {
+  margin: 0;
+  color: #5d5569;
+}
+
+.night-plan-pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.night-plan-pairs > div {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7f4fb;
+}
+
+.night-plan-pairs ul,
+.night-plan-data {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.night-plan-data span {
+  display: block;
+  margin: 2px 0 6px;
+  color: #5d5569;
+}
+
+.night-plan-order-details {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7f4fb;
+}
+
+.night-plan-order-part + .night-plan-order-part {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2ddec;
+}
+
+.night-plan-order-part dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0 0 10px;
+}
+
+.night-plan-order-part dt {
+  color: #5d5569;
+}
+
+.night-plan-order-part dd {
+  margin: 2px 0 0;
+  font-weight: 650;
+}
+
+.night-plan-panel .city-map-costs {
+  margin-top: 8px;
+  padding: 12px 0 0;
+}
+
+.city-map-trace {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.city-map-trace--pair {
+  stroke-width: 1.5;
+  stroke-dasharray: 3 4;
+}
+
+.city-map-trace--hub,
+.city-map-trace--detour,
+.city-map-trace--movement {
+  stroke-dasharray: 6 5;
+}
+
+.city-map-trace[data-selected="true"] {
+  stroke-width: 5;
+}
+
+.city-map-trace-pin {
+  fill: #fff;
+  fill-opacity: 0.65;
+}
+
+.city-map-callout {
+  stroke-dasharray: none;
+  stroke-width: 1;
+}
+
+.city-map-callout rect {
+  fill: #fff9f4;
+}
+
+.city-map-callout line {
+  stroke-opacity: 0.5;
+}
+
+.city-map-callout text {
+  fill: #7e2d16;
+  stroke: none;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.city-map-trace-legend {
+  flex-basis: 100%;
+  order: 1;
+  padding-top: 10px;
+  border-top: 1px solid #eee9f4;
+}
+
+.city-map-legend-trace {
+  display: inline-block;
+  width: 20px;
+  border-top: 3px solid currentColor;
+}
+
+.city-map-legend-trace--pair,
+.city-map-legend-trace--hub,
+.city-map-legend-trace--detour,
+.city-map-legend-trace--movement {
+  border-top-style: dashed;
+}
+
+.city-map-legend-trace--own,
+.city-map-legend-trace--neighbor,
+.city-map-legend-trace--transfer {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.logist-modes {
+  margin-bottom: 14px;
+}
+
+.logist-modes button[aria-pressed="true"] {
+  border-color: #8555d2;
+  background: #efe7fb;
+  color: #4a2287;
+}
+
+.city-map-svg [role="button"] {
+  cursor: pointer;
+}
+
+.city-map-svg [role="button"]:is(:hover, :focus-visible, [aria-pressed="true"]) .city-map-pvz {
+  fill: #e9def9;
+  stroke: #6b2bd9;
+  stroke-width: 4;
+}
+
+.what-if-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 326px;
+  grid-template-areas: "map panel";
+  align-items: start;
+  gap: 14px;
+}
+
+.what-if-view > .city-map-card {
+  grid-area: map;
+}
+
+.what-if-panel {
+  grid-area: panel;
+}
+
+@media (max-width: 1150px) {
+  .what-if-view {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "panel" "map";
+  }
+}
+
+.what-if-form,
+.what-if-form label,
+.what-if-results {
+  display: grid;
+  gap: 6px;
+}
+
+.what-if-form,
+.what-if-results {
+  margin-top: 14px;
+  gap: 12px;
+}
+
+.what-if-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 68px;
+  gap: 9px;
+}
+
+.what-if-form label {
+  font-weight: 600;
+}
+
+.what-if-form :is(select, input, button) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px solid #dcd3e8;
+  border-radius: 7px;
+  background: #fff;
+  color: #382d49;
+  font: inherit;
+}
+
+.what-if-form button {
+  border-color: #6b2bd9;
+  background: #6b2bd9;
+  color: #fff;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.what-if-form button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.what-if-form [role="alert"] {
+  color: #9c2e25;
+}
+
+.what-if-panel .what-if-hint {
+  margin-top: 8px;
+}
+
+.what-if-choice {
+  padding: 10px 12px;
+  border: 1px solid #e2ddec;
+  border-radius: 8px;
+}
+
+.what-if-choice--primary {
+  border-color: #d3c2ee;
+  background: #f7f3fd;
+}
+
+.what-if-choice p {
+  margin-top: 3px;
+}
+
+.what-if-metrics {
+  display: grid;
+  gap: 3px;
+  margin: 8px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.what-if-metrics div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.what-if-metrics dt {
+  color: #5d5569;
+}
+
+.what-if-metrics dd {
+  margin: 0;
+  font-weight: 650;
+}
+
+.what-if-candidates {
+  margin-top: 8px;
+}
+
+.what-if-candidates summary {
+  color: #542691;
+  cursor: pointer;
+}
+
+.what-if-candidates ul {
+  margin-top: 8px;
+}

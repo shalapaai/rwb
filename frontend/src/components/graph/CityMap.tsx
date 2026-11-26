@@ -1,21 +1,12 @@
 import { useId, useState } from "react";
-import type { components } from "../../api-types";
+import MapTraces, { type Point } from "./MapTraces";
+import { traceStyles, type City, type MapTrace, type TraceKind } from "./plan-graph";
 import "./city-map.css";
-
-type City = components["schemas"]["City"];
-type Plan = components["schemas"]["Plan"];
-type Point = { x: number; y: number };
 
 const WIDTH = 1000;
 const HEIGHT = 490;
 const PADDING = 76;
 const ROUTE_COLORS = ["#713bd2", "#087481", "#ab4f16"];
-const RUBLES = new Intl.NumberFormat("ru-RU", {
-  style: "currency",
-  currency: "RUB",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 /** Масштаб одинаков по обеим осям, чтобы сохранять пропорции города. */
 function projectNodes(nodes: City["nodes"]) {
@@ -40,8 +31,20 @@ function projectNodes(nodes: City["nodes"]) {
   return { positions, scale };
 }
 
-/** Схема показывает базовые рейсы, исходные остатки и две стоимости из плана. */
-export default function CityMap({ city, plan }: { city: City; plan: Plan }) {
+/** Базовые рейсы служат подложкой для выбранного шага ночного плана. */
+export default function CityMap({
+  city,
+  traces,
+  legend,
+  onSelectPvz,
+  selectedPvz,
+}: {
+  city: City;
+  traces: MapTrace[];
+  legend: TraceKind[];
+  onSelectPvz?: (id: string) => void;
+  selectedPvz?: string | null;
+}) {
   const id = useId();
   const [showRoutes, setShowRoutes] = useState(true);
   const [showStock, setShowStock] = useState(true);
@@ -102,8 +105,9 @@ export default function CityMap({ city, plan }: { city: City; plan: Plan }) {
         <svg
           className="city-map-svg"
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          role="img"
-          aria-labelledby={`${id}-title ${id}-description`}
+          role={onSelectPvz ? "group" : "img"}
+          aria-labelledby={`${id}-title`}
+          aria-describedby={`${id}-description`}
         >
           <title id={id + "-title"}>Схема ПВЗ и маршрутов газелей WB</title>
           <desc id={id + "-description"}>
@@ -127,7 +131,7 @@ export default function CityMap({ city, plan }: { city: City; plan: Plan }) {
             ))}
           </defs>
           {showRoutes && routes.map((route) => (
-            <g key={route.id} data-route-id={route.id}>
+            <g key={route.id} data-route-id={route.id} opacity={traces.length ? 0.38 : undefined}>
               <title>Газель {route.id}</title>
               {route.stops.map((stop, index) => {
                 const from = positions.get(route.stops[index - 1]?.node_id ?? route.depot_id);
@@ -148,14 +152,32 @@ export default function CityMap({ city, plan }: { city: City; plan: Plan }) {
               })}
             </g>
           ))}
+          <MapTraces traces={traces} mapId={id} positions={positions} />
           {city.nodes.map((node) => {
             const { x, y } = positions.get(node.id)!;
             const qty = stockByNode.get(node.id) ?? 0;
             const isHub = node.kind === "hub";
             const label = isHub ? "Хаб" : node.id;
+            const select = onSelectPvz && !isHub ? () => onSelectPvz(node.id) : undefined;
             return (
-              <g key={node.id} transform={`translate(${x} ${y})`} data-node-kind={node.kind}>
+              <g
+                key={node.id}
+                transform={`translate(${x} ${y})`}
+                data-node-kind={node.kind}
+                role={select ? "button" : undefined}
+                tabIndex={select ? 0 : undefined}
+                aria-label={select ? label : undefined}
+                aria-pressed={select ? selectedPvz === node.id : undefined}
+                onClick={select}
+                onKeyDown={select && ((event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    select();
+                  }
+                })}
+              >
                 <title>{!isHub && showStock ? `${label}, остаток ${qty} шт.` : label}</title>
+                {select && <circle r="15" fill="transparent" />}
                 {showRoutes && showEta && arrivals.get(node.id)?.map(({ eta, color }, index) => {
                   const width = 32 + String(eta).length * 7;
                   return (
@@ -204,18 +226,21 @@ export default function CityMap({ city, plan }: { city: City; plan: Plan }) {
             <li key={routeId}><span className="city-map-legend-route" style={{ color }} /> {routeId}</li>
           ))}
         </ul>
-        <p>Бейджи — остаток в штуках. Время — от выезда из хаба.</p>
+        {legend.length > 0 && (
+          <ul className="city-map-legend city-map-trace-legend" aria-label="Дополнительные слои">
+            {legend.map((kind) => (
+              <li key={kind}>
+                <span
+                  className={`city-map-legend-trace city-map-legend-trace--${kind}`}
+                  style={{ color: traceStyles[kind].color }}
+                />
+                {traceStyles[kind].label}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p>Бейджи — исходные остатки в штуках. Время — от выезда из хаба.</p>
       </div>
-      <dl className="city-map-costs">
-        <div>
-          <dt>Стоимость ночного плана</dt>
-          <dd>{RUBLES.format(plan.total_money_kop / 100)}</dd>
-        </div>
-        <div>
-          <dt>Стоимость доставки через хаб</dt>
-          <dd>{RUBLES.format(plan.hub_money_kop / 100)}</dd>
-        </div>
-      </dl>
     </div>
   );
 }
