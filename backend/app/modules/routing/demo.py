@@ -58,7 +58,7 @@ def make_route(
     return VanRoute(id=route_id, depot_id=depot, capacity=capacity, stops=out)
 
 
-def demo_city(params: Params | None = None, *, include_unique_stock: bool = False) -> City:
+def demo_city(params: Params | None = None, *, include_interactive_stock: bool = False) -> City:
     p = params or Params()
     routes = [
         make_route("G1", [("ПВЗ-A", 60), ("ПВЗ-C", 50), ("ПВЗ-B", 70), ("ПВЗ-E", 60)], p),
@@ -77,17 +77,13 @@ def demo_city(params: Params | None = None, *, include_unique_stock: bool = Fals
         StockItem(node_id="ПВЗ-H", sku_id="SKU-005", qty=10),
         StockItem(node_id="ПВЗ-J", sku_id="SKU-005", qty=4),
     ]
-    # SKU-003 даёт источник для what-if и сохраняет исходный спрос ночного демо.
-    stocked_nodes = {item.node_id for item in stock}
-    stock.extend(
-        StockItem(node_id=node.id, sku_id="SKU-003", qty=3)
-        for node in NODES
-        if node.kind == NodeKind.PVZ and node.id not in stocked_nodes
-    )
-    if include_unique_stock:
-        # Эти партии нужны на схеме логиста, чтобы проверить перевозку с конкретной полки.
+    if include_interactive_stock:
+        # Дополнительные партии для экспериментов на карте логиста.
+        stocked_nodes = {item.node_id for item in stock}
         for node in NODES:
             if node.kind == NodeKind.PVZ:
+                if node.id not in stocked_nodes:
+                    stock.append(StockItem(node_id=node.id, sku_id="SKU-003", qty=3))
                 sku = Sku(id=f"{UNIQUE_SKU_PREFIX}{node.id}")
                 skus.append(sku)
                 stock.append(StockItem(node_id=node.id, sku_id=sku.id, qty=3))

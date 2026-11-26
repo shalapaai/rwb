@@ -325,6 +325,9 @@ def test_demo_unique_goods_share_return_visit_without_local_fulfillment():
     response = client.get("/routing/demo", headers=headers)
     assert response.status_code == 200
     c = City.model_validate(response.json()["city"])
+    assert {s.node_id for s in c.stock if s.qty > 0} == {
+        n.id for n in c.nodes if n.kind == NodeKind.PVZ
+    }
     assert [(s.sku_id, s.node_id, s.qty) for s in c.stock if s.sku_id.startswith("UNIQUE-")] == [
         (f"UNIQUE-{node.id}", node.id, 3) for node in c.nodes if node.kind == NodeKind.PVZ
     ]
