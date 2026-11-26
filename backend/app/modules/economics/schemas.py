@@ -53,5 +53,15 @@ class UnitEconomics(BaseModel):
     )
     base: Scheme
     mesh: Scheme
-    effect_kop: int
+    local_delivery_min: Decimal = Field(
+        description="Срок при продаже в городе: (1−α) × срок своей полки + α × срок газели."
+    )
+    hub_delivery_min: int = Field(description="Срок исполнения следующего заказа из хаба.")
+    storage_payment_kop: int = Field(description="Выплата МП за хранение: место, труд и маржа ПВЗ.")
+    effect_after_storage_fee_kop: int = Field(
+        description="Расчёт по листу «Модель v3»: p·G − c_grade − s·V·E[t], с полным тарифом s."
+    )
+    effect_kop: int = Field(
+        description="Эффект цепочки с учётом того, что маржу хранения получает ПВЗ."
+    )
     distribution: Distribution

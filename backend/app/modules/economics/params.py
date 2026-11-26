@@ -139,6 +139,27 @@ class ModelParams:
         "Для условной доли газели среди местных продаж берём 14 / (14 + 3).",
         AUDIT,
     )
+    own_delivery_min: int = assumption(
+        30,
+        "Готовность со своей полки",
+        "мин",
+        "Лист «Модель v3»: 0,5 ч с момента заказа.",
+        ROADMAP,
+    )
+    van_delivery_min: int = assumption(
+        720,
+        "Готовность после попутного рейса",
+        "мин",
+        "Лист «Модель v3»: около 12 ч с момента заказа, сценарный ориентир.",
+        ROADMAP,
+    )
+    hub_delivery_min: int = assumption(
+        2160,
+        "Готовность заказа из хаба",
+        "мин",
+        "Лист «Модель v3»: 36 ч с момента следующего заказа.",
+        ROADMAP,
+    )
     inspection_fee_kop: int = assumption(
         1500,
         "Выплата ПВЗ за оценку",
@@ -226,4 +247,6 @@ def routing_params(params: ModelParams = DEFAULTS) -> Params:
         move_kop=kopecks(params.move_cost),
         transfer_kop=kopecks(params.labour(params.receive_min + params.pick_min)),
         hub_kop=params.hub_order_kop,
+        own_hours=params.own_delivery_min / 60,
+        hub_hours=params.hub_delivery_min / 60,
     )

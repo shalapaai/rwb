@@ -42,6 +42,8 @@ def test_no_demand_charges_full_shelf_period_then_hub():
     assert result["base"]["total_kop"] == 3700 + 6040
     # 3 минуты по 330 ₽/ч и 2 л × 7 суток по 10 коп. реальных затрат.
     assert result["mesh"]["total_kop"] == 9740 + 1650 + 140
+    assert result["storage_payment_kop"] == 2 * 7 * 15
+    assert result["effect_after_storage_fee_kop"] == -1650 - 2 * 7 * 15
     assert result["distribution"] == {"pvz_kop": -80, "seller_kop": 0, "mp_kop": -1710}
     assert result["effect_kop"] == result["base"]["total_kop"] - result["mesh"]["total_kop"]
 
@@ -74,5 +76,7 @@ def test_team_defaults_and_routing_prices():
     assert (result["shelf_days"], result["repack_payer"]) == (14, "mp")
     # Пакет, две минуты на упаковку, 14 суток хранения и полный маршрут через хаб.
     assert result["mesh"]["total_kop"] == 9740 + 1650 + 306 + 1100 + 280
+    assert Decimal(result["local_delivery_min"]) == pytest.approx(Decimal(3 * 30 + 14 * 720) / 17)
+    assert result["hub_delivery_min"] == 2160
     routing = routing_params()
     assert (routing.hub_kop, routing.own_kop, routing.move_kop) == (6040, 925, 813)

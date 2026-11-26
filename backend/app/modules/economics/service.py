@@ -127,13 +127,21 @@ def unit_economics(
         C_hub=params.hub_order_kop,
     )
 
+    storage_margin = litre_days * params.shelf_profit_kop_l_day
+    storage_payment = storage_cost + storage_margin
+    # В формуле листа s — полный тариф хранения. Для цепочки маржа остаётся внутри ПВЗ.
+    effect_after_storage_fee = base.total - mesh.total - storage_margin
+    local_delivery_min = (
+        1 - van_share
+    ) * params.own_delivery_min + van_share * params.van_delivery_min
+
     # Вклад всех ПВЗ: тарифы за операции минус их труд и расходники, плюс маржа хранения.
     pvz = (
         params.inspection_fee_kop
         - inspection
         + repack_fee
         - repack_cost
-        + litre_days * params.shelf_profit_kop_l_day
+        + storage_margin
         + sold * (params.pick_fee_kop - params.labour(params.pick_min))
         + via_van * (params.receive_fee_kop - params.labour(params.receive_min))
     )
@@ -152,6 +160,10 @@ def unit_economics(
         expected_days=days,
         base=base.scheme(),
         mesh=mesh.scheme(),
+        local_delivery_min=local_delivery_min,
+        hub_delivery_min=params.hub_delivery_min,
+        storage_payment_kop=kopecks(storage_payment),
+        effect_after_storage_fee_kop=kopecks(effect_after_storage_fee),
         effect_kop=effect,
         distribution=Distribution(
             pvz_kop=pvz_kop,
